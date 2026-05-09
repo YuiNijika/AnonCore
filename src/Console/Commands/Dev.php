@@ -15,7 +15,7 @@ class Dev extends Command
         $host = $this->getOption($args, 'host', '127.0.0.1');
         $port = $this->getOption($args, 'port', '8000');
 
-        // 计算 public/run 目录路径 (假设我们在根目录执行)
+        // 计算 run 目录路径 
         $docRoot = getcwd() . DIRECTORY_SEPARATOR . 'run';
 
         if (!is_dir($docRoot)) {
