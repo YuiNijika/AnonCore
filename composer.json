@@ -1,0 +1,21 @@
+{
+    "name": "yuinijika/anon-core",
+    "description": "Anon Framework Core",
+    "type": "library",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Anon\\Core\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "鼠子",
+            "email": "Tomori@miomoe.cn"
+        }
+    ],
+    "minimum-stability": "dev",
+        "require": {
+        "php": ">=8.0"
+    }
+}
