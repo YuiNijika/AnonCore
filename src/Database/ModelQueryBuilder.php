@@ -31,7 +31,7 @@ class ModelQueryBuilder extends QueryBuilder
     }
 
     /**
-     * 执行查询并获取所有结果 (模型实例数组)
+     * 执行查询并获取所有结果
      */
     public function get(): array
     {
@@ -40,7 +40,7 @@ class ModelQueryBuilder extends QueryBuilder
     }
 
     /**
-     * 执行查询并获取第一条结果 (模型实例)
+     * 执行查询并获取第一条结果
      */
     public function first(): ?Model
     {
@@ -51,7 +51,7 @@ class ModelQueryBuilder extends QueryBuilder
     }
 
     /**
-     * 分页查询 (返回模型实例数组)
+     * 分页查询
      */
     public function paginate(int $perPage = 15, ?int $current = null): array
     {

@@ -21,14 +21,19 @@ class Container
     protected array $bindings = [];
 
     /**
-     * @var array 已经实例化的对象池 (单例)
+     * @var array 已经实例化的对象池
      */
     protected array $instances = [];
 
     /**
-     * @var array 正在构建的类栈 (用于检测循环依赖)
+     * @var array 正在构建的类栈
      */
     protected array $buildStack = [];
+
+    /**
+     * @var array 缓存类的反射信息以提高性能
+     */
+    protected array $reflectionCache = [];
 
     /**
      * 获取当前容器的单例实例
@@ -74,7 +79,7 @@ class Container
     }
 
     /**
-     * 解析出给定标识的实例 (支持自动注入)
+     * 解析出给定标识的实例
      * @param string $abstract 标识或类名
      * @param array $vars 手动指定的参数
      * @param bool $newInstance 是否强制创建新实例
@@ -83,7 +88,7 @@ class Container
      */
     public function make(string $abstract, array $vars = [], bool $newInstance = false): mixed
     {
-        // 1. 如果已经实例化过，且不强制创建新实例，直接返回单例
+        // 如果已经实例化过，且不强制创建新实例，直接返回单例
         if (isset($this->instances[$abstract]) && !$newInstance) {
             return $this->instances[$abstract];
         }
@@ -95,21 +100,21 @@ class Container
         $this->buildStack[$abstract] = true;
 
         try {
-            // 2. 获取实际应该实例化的具体内容
+            // 获取实际应该实例化的具体内容
             $concrete = $this->bindings[$abstract] ?? $abstract;
 
-            // 3. 如果是闭包，执行闭包并传入容器实例和参数
+            // 如果是闭包，执行闭包并传入容器实例和参数
             if ($concrete instanceof Closure) {
                 $object = $concrete($this, $vars);
             } else {
-                // 4. 否则尝试利用反射 API 实例化该类
+                // 否则尝试利用反射 API 实例化该类
                 $object = $this->invokeClass($concrete, $vars);
             }
         } finally {
             unset($this->buildStack[$abstract]);
         }
 
-        // 5. 存入实例池
+        // 存入实例池
         if (!$newInstance) {
             $this->instances[$abstract] = $object;
         }
@@ -127,7 +132,12 @@ class Container
     public function invokeClass(string $class, array $vars = []): object
     {
         try {
-            $reflect = new ReflectionClass($class);
+            if (isset($this->reflectionCache[$class])) {
+                $reflect = $this->reflectionCache[$class];
+            } else {
+                $reflect = new ReflectionClass($class);
+                $this->reflectionCache[$class] = $reflect;
+            }
         } catch (ReflectionException $e) {
             throw new Exception("Class {$class} does not exist", 0, $e);
         }
@@ -148,7 +158,7 @@ class Container
     }
 
     /**
-     * 解析方法参数 (自动装配核心逻辑)
+     * 解析方法参数
      * @param ReflectionMethod $reflect 方法反射对象
      * @param array $vars 手动提供的参数
      * @return array 解析后的参数数组

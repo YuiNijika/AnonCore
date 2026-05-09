@@ -34,6 +34,11 @@ class Request
      */
     protected array $routeParams = [];
 
+    /**
+     * @var array 存放解析后的 UploadedFile 对象
+     */
+    protected array $files = [];
+
     public function __construct()
     {
         $this->get = $_GET;
@@ -41,6 +46,23 @@ class Request
         $this->server = $_SERVER;
         $this->header = $this->parseHeaders();
         $this->body = $this->parseBody();
+        $this->files = $this->parseFiles();
+    }
+
+    /**
+     * 从另一个请求实例克隆数据
+     */
+    public function cloneFrom(Request $request): self
+    {
+        $this->get = $request->get;
+        $this->post = $request->post;
+        $this->server = $request->server;
+        $this->header = $request->header;
+        $this->body = $request->body;
+        $this->files = $request->file();
+        $this->routeParams = $request->getRouteParams();
+        
+        return $this;
     }
 
     /**
@@ -175,16 +197,64 @@ class Request
     }
 
     /**
-     * 获取上传的文件
+     * 获取上传的文件 (返回 UploadedFile 实例或数组)
      * @param string|null $key
-     * @return mixed
+     * @return UploadedFile|UploadedFile[]|null
      */
     public function file(?string $key = null): mixed
     {
         if ($key === null) {
-            return $_FILES;
+            return $this->files;
         }
-        return $_FILES[$key] ?? null;
+        return $this->files[$key] ?? null;
+    }
+
+    /**
+     * 判断是否上传了指定文件且有效
+     * @param string $key
+     * @return bool
+     */
+    public function hasFile(string $key): bool
+    {
+        $file = $this->file($key);
+        if ($file instanceof UploadedFile) {
+            return $file->isValid();
+        }
+        if (is_array($file) && count($file) > 0) {
+            foreach ($file as $f) {
+                if ($f instanceof UploadedFile && $f->isValid()) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 解析 $_FILES 为 UploadedFile 对象数组
+     * @return array
+     */
+    protected function parseFiles(): array
+    {
+        $files = [];
+        foreach ($_FILES as $key => $fileInfo) {
+            // 处理单个字段上传多个文件的情况 <input type="file" name="files[]" multiple>
+            if (is_array($fileInfo['name'])) {
+                $files[$key] = [];
+                foreach (array_keys($fileInfo['name']) as $idx) {
+                    $files[$key][$idx] = new UploadedFile([
+                        'name' => $fileInfo['name'][$idx],
+                        'type' => $fileInfo['type'][$idx],
+                        'tmp_name' => $fileInfo['tmp_name'][$idx],
+                        'error' => $fileInfo['error'][$idx],
+                        'size' => $fileInfo['size'][$idx],
+                    ]);
+                }
+            } else {
+                $files[$key] = new UploadedFile($fileInfo);
+            }
+        }
+        return $files;
     }
 
     /**

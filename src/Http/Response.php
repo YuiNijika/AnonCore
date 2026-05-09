@@ -81,6 +81,14 @@ class Response
     }
 
     /**
+     * 获取当前状态码
+     */
+    public function getStatusCode(): int
+    {
+        return $this->statusCode;
+    }
+
+    /**
      * 追加自定义 HTTP 头
      * @param string $name 头名称
      * @param string $value 头值

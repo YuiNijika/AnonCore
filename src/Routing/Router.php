@@ -96,6 +96,25 @@ class Router
     protected array $lastRouteItems = [];
 
     /**
+     * @var array 全局中间件
+     */
+    protected array $globalMiddlewares = [];
+
+    /**
+     * 注册全局中间件
+     * @param array|string $middleware
+     * @return $this
+     */
+    public function globalMiddleware(array|string $middleware): self
+    {
+        if (is_string($middleware)) {
+            $middleware = [$middleware];
+        }
+        $this->globalMiddlewares = array_merge($this->globalMiddlewares, $middleware);
+        return $this;
+    }
+
+    /**
      * 为当前正在创建的路由或路由组绑定中间件
      */
     public function middleware(array|string $middleware): self
@@ -213,11 +232,45 @@ class Router
      */
     public function dispatch(Request $request): Response
     {
+        // 构建全局中间件执行栈
+        $next = function ($request) {
+            return $this->findRouteAndExecute($request);
+        };
+
+        // 倒序遍历包装全局中间件，保证洋葱外层先执行
+        for ($i = count($this->globalMiddlewares) - 1; $i >= 0; $i--) {
+            $middlewareClass = $this->globalMiddlewares[$i];
+            if (class_exists($middlewareClass)) {
+                $middlewareInstance = new $middlewareClass();
+                if (method_exists($middlewareInstance, 'handle')) {
+                    $next = function ($request) use ($middlewareInstance, $next) {
+                        return call_user_func([$middlewareInstance, 'handle'], $request, $next);
+                    };
+                }
+            }
+        }
+
+        // 触发调用栈
+        return call_user_func($next, $request);
+    }
+
+    /**
+     * 查找匹配的路由并执行其特定的中间件和动作
+     */
+    protected function findRouteAndExecute(Request $request): Response
+    {
         $method = $request->method();
         $uri = $request->uri();
         $uri = '/' . ltrim($uri, '/');
         if ($uri !== '/') {
             $uri = rtrim($uri, '/');
+        }
+
+        // 处理跨域预检请求的快捷放行 (如果开启了全局CORS但没显式注册OPTIONS路由)
+        if ($method === 'OPTIONS') {
+            if (!isset($this->routes['OPTIONS'][$uri])) {
+                return Response::json([], 204);
+            }
         }
 
         // 查找精确匹配的路由
@@ -244,7 +297,7 @@ class Router
     }
 
     /**
-     * 穿过中间件栈执行路由
+     * 穿过路由特定的中间件栈执行路由
      * @param RouteItem $routeItem
      * @param Request $request
      * @return Response
@@ -358,11 +411,31 @@ class Router
 
             // 如果参数有类/接口类型的提示，优先使用容器解析注入
             if ($type instanceof \ReflectionNamedType && !$type->isBuiltin()) {
-                // 特殊处理 Request，避免被同名路由参数覆盖
-                if ($type->getName() === Request::class && isset($routeParams['request']) && $routeParams['request'] instanceof Request) {
-                    $args[] = $routeParams['request'];
+                $className = $type->getName();
+                
+                // 特殊处理 Request 及其子类 (如 FormRequest)
+                if (is_a($className, Request::class, true)) {
+                    // 如果参数类型是特定的 FormRequest，我们需要实例化它并执行验证
+                    if ($className !== Request::class && is_subclass_of($className, \Anon\Core\Http\FormRequest::class)) {
+                        /** @var \Anon\Core\Http\FormRequest $formRequest */
+                        $formRequest = $app->make($className);
+                        // 复制当前 request 的数据到 form request
+                        $currentRequest = $routeParams['request'] ?? $app->make(Request::class);
+                        $formRequest->cloneFrom($currentRequest);
+
+                        // 验证
+                        $formRequest->validateResolved();
+                        $args[] = $formRequest;
+                    } else {
+                        // 普通 Request 注入
+                        if (isset($routeParams['request']) && $routeParams['request'] instanceof Request) {
+                            $args[] = $routeParams['request'];
+                        } else {
+                            $args[] = $app->make($className);
+                        }
+                    }
                 } else {
-                    $args[] = $app->make($type->getName());
+                    $args[] = $app->make($className);
                 }
             }
             // 然后尝试使用路由动态参数匹配

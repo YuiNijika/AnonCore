@@ -42,7 +42,15 @@ abstract class Command
      */
     protected function info(string $message): void
     {
-        echo "\03[32m[INFO]\033[0m {$message}" . PHP_EOL;
+        echo "\033[36m[INFO]\033[0m {$message}" . PHP_EOL;
+    }
+
+    /**
+     * 在控制台输出成功文本
+     */
+    protected function success(string $message): void
+    {
+        echo "\033[32m[SUCCESS]\033[0m {$message}" . PHP_EOL;
     }
 
     /**

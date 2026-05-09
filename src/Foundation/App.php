@@ -108,6 +108,8 @@ class App extends Container
         $this->bind('event', \Anon\Core\Event\Dispatcher::class);
         $this->bind('auth', \Anon\Core\Auth\AuthManager::class);
         $this->bind('storage', \Anon\Core\Storage\Manager::class);
+        $this->bind('http', \Anon\Core\Http\Client::class);
+        $this->bind('queue', \Anon\Core\Queue\QueueManager::class);
     }
 
     /**

@@ -11,7 +11,7 @@ class File implements Contract
 
     public function __construct()
     {
-        $this->cachePath = defined('RUNTIME_PATH') ? RUNTIME_PATH . '/cache' : sys_get_temp_dir() . '/anon_cache';
+        $this->cachePath = RUNTIME_PATH . '/cache';
         if (!is_dir($this->cachePath)) {
             mkdir($this->cachePath, 0755, true);
         }
@@ -100,17 +100,61 @@ class File implements Contract
 
     public function clear(): bool
     {
-        $files = glob($this->cachePath . '/*.cache');
-        if ($files === false) {
+        $success = true;
+        
+        try {
+            $iterator = new \DirectoryIterator($this->cachePath);
+            foreach ($iterator as $fileInfo) {
+                if ($fileInfo->isFile() && $fileInfo->getExtension() === 'cache') {
+                    $success = $success && unlink($fileInfo->getPathname());
+                }
+            }
+        } catch (\Exception $e) {
             return false;
         }
-        
-        $success = true;
-        foreach ($files as $file) {
-            if (is_file($file)) {
-                $success = $success && unlink($file);
-            }
-        }
+
         return $success;
+    }
+
+    public function increment(string $key, int $value = 1): int|bool
+    {
+        $file = $this->getCacheFile($key);
+        // 使用文件锁避免并发问题
+        $fp = fopen($file, 'c+');
+        if (!$fp) {
+            return false;
+        }
+
+        if (flock($fp, LOCK_EX)) {
+            $content = stream_get_contents($fp);
+            $data = $content ? unserialize($content) : false;
+            
+            $currentValue = 0;
+            $expire = 0;
+
+            if (is_array($data)) {
+                if ($data['expire'] === 0 || time() <= $data['expire']) {
+                    $currentValue = (int)$data['value'];
+                    $expire = $data['expire'];
+                }
+            }
+
+            $newValue = $currentValue + $value;
+            $newData = [
+                'value' => $newValue,
+                'expire' => $expire
+            ];
+
+            ftruncate($fp, 0);
+            rewind($fp);
+            fwrite($fp, serialize($newData));
+            flock($fp, LOCK_UN);
+            fclose($fp);
+
+            return $newValue;
+        }
+
+        fclose($fp);
+        return false;
     }
 }

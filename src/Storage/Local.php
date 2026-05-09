@@ -11,9 +11,9 @@ class Local implements Contract
 
     public function __construct()
     {
-        // 默认存储在 public/storage 下
-        $this->root = defined('BASE_PATH') ? BASE_PATH . '/run/storage' : getcwd() . '/run/storage';
-        $this->url = (defined('APP_URL') ? APP_URL : Env::get('APP_URL', 'http://localhost:8000')) . '/storage';
+        // 使用框架全局常量
+        $this->root = RUNTIME_PATH . '/storage';
+        $this->url = APP_URL . '/storage';
         
         if (!is_dir($this->root)) {
             mkdir($this->root, 0755, true);
@@ -23,10 +23,19 @@ class Local implements Contract
     protected function getFullPath(string $path): string
     {
         // 过滤危险字符，防止路径穿越攻击
-        if (str_contains($path, '../') || str_contains($path, '..\\')) {
-            throw new \InvalidArgumentException("Invalid path: Path traversal is not allowed.");
+        $normalizedPath = realpath($this->root . '/' . ltrim($path, '/'));
+        
+        // 允许新建文件时的路径验证（realpath 对不存在的文件返回 false）
+        if ($normalizedPath === false) {
+            $normalizedPath = $this->root . '/' . ltrim($path, '/');
+            if (str_contains($normalizedPath, '..')) {
+                throw new \InvalidArgumentException("Invalid path: Path traversal is not allowed.");
+            }
+        } elseif (!str_starts_with($normalizedPath, realpath($this->root))) {
+            throw new \InvalidArgumentException("Invalid path: Path traversal is not allowed out of root.");
         }
-        return $this->root . '/' . ltrim($path, '/');
+        
+        return $normalizedPath;
     }
 
     public function exists(string $path): bool

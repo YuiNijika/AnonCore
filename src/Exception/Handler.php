@@ -23,7 +23,7 @@ class Handler
             $statusCode = $e->getStatusCode();
             $responseData = $e->getData();
         } else {
-            // 非 HTTP 异常（如代码报错、PDO异常等）在非 Debug 模式下隐藏真实错误信息
+            // 非 HTTP 异常在非 Debug 模式下隐藏真实错误信息
             if (!$this->isDebug()) {
                 $message = "Internal Server Error";
             }

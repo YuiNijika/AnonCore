@@ -40,4 +40,12 @@ interface Contract
      * @return bool
      */
     public function clear(): bool;
+
+    /**
+     * 递增缓存值
+     * @param string $key 缓存键名
+     * @param int $value 递增的步长
+     * @return int|bool 递增后的值，失败返回 false
+     */
+    public function increment(string $key, int $value = 1): int|bool;
 }

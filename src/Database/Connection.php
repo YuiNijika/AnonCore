@@ -114,6 +114,7 @@ class Connection
             PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION, // 错误抛出异常
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,       // 默认返回关联数组
             PDO::ATTR_EMULATE_PREPARES   => false,                  // 禁用模拟预处理，使用真实的预处理
+            PDO::ATTR_PERSISTENT         => true,                   // 开启持久化连接提升性能
         ];
 
         try {

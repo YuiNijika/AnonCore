@@ -92,4 +92,9 @@ class Redis implements Contract
         // 在实际业务中可能需要使用 scan 命令只清除指定 prefix 的键
         return $this->redis->flushDB();
     }
+
+    public function increment(string $key, int $value = 1): int|bool
+    {
+        return $this->redis->incrBy($this->getRealKey($key), $value);
+    }
 }

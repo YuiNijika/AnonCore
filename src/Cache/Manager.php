@@ -41,7 +41,7 @@ class Manager implements Contract
     /**
      * 解析并实例化对应的缓存驱动
      */
-    protected function resolve(string $name): CacheInterface
+    protected function resolve(string $name): Contract
     {
         switch ($name) {
             case 'file':
@@ -80,5 +80,10 @@ class Manager implements Contract
     public function clear(): bool
     {
         return $this->store()->clear();
+    }
+
+    public function increment(string $key, int $value = 1): int|bool
+    {
+        return $this->store()->increment($key, $value);
     }
 }

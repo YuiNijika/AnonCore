@@ -29,6 +29,12 @@ class Application
         $this->add(new Commands\MakeController());
         $this->add(new Commands\MakeModel());
         $this->add(new Commands\MakeMiddleware());
+        $this->add(new Commands\MakeMigration());
+        $this->add(new Commands\Migrate());
+        $this->add(new Commands\MakeSeeder());
+        $this->add(new Commands\DbSeed());
+        $this->add(new Commands\MakeJob());
+        $this->add(new Commands\QueueWork());
     }
 
     /**
