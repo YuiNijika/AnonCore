@@ -28,6 +28,8 @@ class Application
         $this->add(new Commands\Dev());
         $this->add(new Commands\MakeController());
         $this->add(new Commands\MakeModel());
+        $this->add(new Commands\MakeRequest());
+        $this->add(new Commands\MakeResource());
         $this->add(new Commands\MakeMiddleware());
         $this->add(new Commands\MakeMigration());
         $this->add(new Commands\Migrate());

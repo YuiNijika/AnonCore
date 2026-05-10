@@ -31,7 +31,17 @@ class Dispatcher
     {
         // 如果传入的是对象，则事件名称取其类名，载荷为其自身
         $eventName = is_object($event) ? get_class($event) : $event;
-        $payload = is_object($event) ? [$event] : (is_array($payload) ? $payload : [$payload]);
+        
+        if (is_object($event)) {
+            $payload = [$event];
+        } elseif (is_array($payload)) {
+            // 如果是关联数组，将其整体作为一个参数包装，避免 PHP 8 命名参数解包错误
+            if (empty($payload) || array_keys($payload) !== range(0, count($payload) - 1)) {
+                $payload = [$payload];
+            }
+        } else {
+            $payload = [$payload];
+        }
 
         $responses = [];
 

@@ -97,13 +97,62 @@ class Request
     }
 
     /**
+     * 获取客户端 IP 地址
+     * @return string
+     */
+    public function ip(): string
+    {
+        // 可能的IP来源数组
+        $sources = [
+            'HTTP_CLIENT_IP',
+            'HTTP_X_FORWARDED_FOR',
+            'REMOTE_ADDR'
+        ];
+
+        foreach ($sources as $source) {
+            if (!empty($this->server[$source])) {
+                $ip = $this->server[$source];
+
+                // 处理 X-Forwarded-For 可能包含多个 IP
+                if ($source === 'HTTP_X_FORWARDED_FOR') {
+                    $ips = explode(',', $ip);
+                    $ip = trim($ips[0]);
+                }
+
+                // 验证IP格式
+                if (filter_var($ip, FILTER_VALIDATE_IP)) {
+                    // 将IPv6本地回环地址转换为IPv4格式
+                    if ($ip === '::1') {
+                        return '127.0.0.1';
+                    }
+                    return $ip;
+                }
+            }
+        }
+
+        // 所有来源都无法获取有效 IP 时返回默认值
+        return '127.0.0.1';
+    }
+
+    /**
+     * 合并输入数据并更新到实例
+     */
+    public function merge(array $input): self
+    {
+        $this->get = array_merge($this->get, $input);
+        return $this;
+    }
+    /**
      * 获取指定名称的输入参数
-     * @param string $key 参数名称
+     * @param string|null $key 参数名称
      * @param mixed $default 默认值
      * @return mixed
      */
-    public function input(string $key, mixed $default = null): mixed
+    public function input(?string $key = null, mixed $default = null): mixed
     {
+        if ($key === null) {
+            return array_replace($this->get, $this->post, is_array($this->body) ? $this->body : []);
+        }
         if (isset($this->get[$key])) {
             return $this->get[$key];
         }

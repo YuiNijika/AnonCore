@@ -42,7 +42,7 @@ class ModelQueryBuilder extends QueryBuilder
     /**
      * 执行查询并获取第一条结果
      */
-    public function first(): ?Model
+    public function first(): array|Model|null
     {
         $this->limit(1);
         $records = parent::get();

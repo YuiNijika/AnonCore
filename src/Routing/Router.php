@@ -308,18 +308,34 @@ class Router
         $action = $routeItem->action;
 
         // 构建洋葱模型闭包执行栈
-        $next = function ($request) use ($action) {
-            return $this->runAction($action, $request);
+        // 注意闭包必须通过引用或传递修改后的 $request 才能生效
+        $next = function ($req) use ($action) {
+            return $this->runAction($action, $req);
         };
 
         // 倒序遍历包装中间件，保证洋葱外层先执行
         for ($i = count($middlewares) - 1; $i >= 0; $i--) {
-            $middlewareClass = $middlewares[$i];
+            $middlewareDef = $middlewares[$i];
+            
+            // 解析中间件参数 (例如 Throttle::class . ':3,60')
+            $middlewareClass = $middlewareDef;
+            $middlewareArgs = [];
+            if (str_contains($middlewareDef, ':')) {
+                [$middlewareClass, $argsStr] = explode(':', $middlewareDef, 2);
+                $middlewareArgs = explode(',', $argsStr);
+            }
+
             if (class_exists($middlewareClass)) {
                 $middlewareInstance = new $middlewareClass();
                 if (method_exists($middlewareInstance, 'handle')) {
-                    $next = function ($request) use ($middlewareInstance, $next) {
-                        return call_user_func([$middlewareInstance, 'handle'], $request, $next);
+                    // 注意：这里的 $next 捕获了外层（或上一个）的闭包引用
+                    $next = function ($req) use ($middlewareInstance, $next, $middlewareArgs) {
+                        try {
+                            return call_user_func_array([$middlewareInstance, 'handle'], array_merge([$req, $next], $middlewareArgs));
+                        } catch (\Throwable $e) {
+                            // 洋葱模型异常穿透必须支持拦截
+                            throw $e;
+                        }
                     };
                 }
             }

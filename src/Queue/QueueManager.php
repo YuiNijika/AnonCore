@@ -55,7 +55,7 @@ class QueueManager
     /**
      * 从队列中弹出并执行任务（阻塞模式）
      */
-    public function pop(string $queue = null, int $timeout = 3): ?Job
+    public function pop(?string $queue = null, int $timeout = 3): ?Job
     {
         if (!$this->redis) {
             throw new Exception("Redis extension is required for Queue.");

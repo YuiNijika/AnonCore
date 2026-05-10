@@ -172,13 +172,47 @@ class App extends Container
     }
 
     /**
-     * 捕获全局异常并以JSON格式响应
-     * @param Throwable $e
+     * 处理异常并返回响应
      */
-    public function handleException(Throwable $e): void
+    public function handleException(\Throwable $e): void
     {
-        $handler = $this->make(\Anon\Core\Exception\Handler::class);
-        $handler->render($e);
+        // 记录错误日志，将上下文合并到消息中
+        $errorMsg = $e->getMessage() . "\n" . json_encode([
+            'file'  => $e->getFile(),
+            'line'  => $e->getLine(),
+            'trace' => $e->getTraceAsString()
+        ]);
+        Log::error($errorMsg, 'exception');
+
+        $code = 500;
+        $message = $e->getMessage();
+        $data = null;
+
+        // 如果是 HTTP 异常，提取状态码和数据
+        if ($e instanceof \Anon\Core\Exception\HttpException) {
+            $code = $e->getStatusCode();
+            $data = $e->getData();
+        } else {
+            // 在非调试模式下，隐藏真实错误信息
+            if (!Env::get('DEBUG_MODE', false)) {
+                $message = 'Internal Server Error';
+            } else {
+                $data = [
+                    'file'  => $e->getFile(),
+                    'line'  => $e->getLine(),
+                    'trace' => $e->getTrace(),
+                ];
+            }
+        }
+
+        // 返回 JSON 格式错误
+        $response = Response::json([
+            'code'    => $code,
+            'message' => $message,
+            'data'    => $data
+        ], $code);
+
+        $response->send();
     }
 
     /**

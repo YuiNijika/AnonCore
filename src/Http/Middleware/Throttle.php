@@ -36,8 +36,8 @@ class Throttle
         $response = $next($request);
 
         // 可以在响应头中加入 X-RateLimit 等信息
-        $response->header('X-RateLimit-Limit', (string)$maxAttempts);
-        $response->header('X-RateLimit-Remaining', (string)max(0, $maxAttempts - Cache::get($key, 0)));
+        $response->withHeader('X-RateLimit-Limit', (string)$maxAttempts);
+        $response->withHeader('X-RateLimit-Remaining', (string)max(0, $maxAttempts - Cache::get($key, 0)));
 
         return $response;
     }

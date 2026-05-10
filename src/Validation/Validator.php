@@ -152,11 +152,12 @@ class Validator
      */
     protected function getDefaultMessage(string $field, string $ruleName, array $params = []): string
     {
+        $param0 = $params[0] ?? '';
         $messages = [
             'required' => "{$field} 不能为空",
             'email'    => "{$field} 格式不正确",
-            'max'      => "{$field} 的最大长度不能超过 {$params[0]}",
-            'min'      => "{$field} 的最小长度不能低于 {$params[0]}",
+            'max'      => "{$field} 的最大长度/值不能超过 {$param0}",
+            'min'      => "{$field} 的最小长度/值不能低于 {$param0}",
             'numeric'  => "{$field} 必须是数字",
             'integer'  => "{$field} 必须是整数",
             'in'       => "{$field} 必须在允许的范围内",

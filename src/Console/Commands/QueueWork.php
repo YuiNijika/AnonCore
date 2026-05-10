@@ -41,7 +41,8 @@ class QueueWork extends Command
                 }
             } catch (Throwable $e) {
                 $this->error("Job failed: " . $e->getMessage());
-                // 可选：记录到失败的队列中或日志中
+                // 遇到异常（如 Redis 断开），休眠几秒防止死循环耗尽 CPU
+                sleep(3);
             }
         }
 

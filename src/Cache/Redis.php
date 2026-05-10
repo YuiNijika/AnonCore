@@ -58,16 +58,26 @@ class Redis implements Contract
             return $default;
         }
 
+        if (is_numeric($value)) {
+            // Redis 返回的是字符串，如果原样是数字，我们转换为数值类型
+            return str_contains($value, '.') ? (float)$value : (int)$value;
+        }
+
         // 尝试反序列化
         $unserialized = @unserialize($value);
-        return $unserialized !== false ? $unserialized : $value;
+        if ($unserialized !== false || $value === 'b:0;') {
+            return $unserialized;
+        }
+        
+        return $value;
     }
 
     public function set(string $key, mixed $value, ?int $ttl = null): bool
     {
         $realKey = $this->getRealKey($key);
-        // 对数组或对象进行序列化
-        $valueToStore = (is_array($value) || is_object($value)) ? serialize($value) : $value;
+        
+        // 为了支持 incrBy，对数字类型不进行序列化；其余类型进行序列化以保证类型安全和防止冲突
+        $valueToStore = is_numeric($value) ? $value : serialize($value);
 
         if ($ttl !== null && $ttl > 0) {
             return $this->redis->setex($realKey, $ttl, $valueToStore);

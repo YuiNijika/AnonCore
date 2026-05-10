@@ -131,6 +131,22 @@ class QueryBuilder
     }
 
     /**
+     * 增加 OR WHERE NOT NULL 条件
+     */
+    public function orWhereNotNull(string $column): self
+    {
+        return $this->whereNotNull($column, 'OR');
+    }
+
+    /**
+     * 增加 OR WHERE NULL 条件
+     */
+    public function orWhereNull(string $column): self
+    {
+        return $this->whereNull($column, 'OR');
+    }
+
+    /**
      * JOIN 连表查询
      */
     public function join(string $table, string $first, string $operator, string $second, string $type = 'INNER'): self
@@ -193,9 +209,9 @@ class QueryBuilder
 
     /**
      * 执行查询并获取第一条结果
-     * @return array|null
+     * @return array|null|Model
      */
-    public function first(): ?array
+    public function first(): array|Model|null
     {
         $query = clone $this;
         $query->limit(1);
