@@ -23,12 +23,12 @@ class Cors
     protected array $allowedHeaders = ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'];
 
     /**
-     * 是否允许携带凭证
+     * 是否允许携带凭证 (Cookies, Authorization headers等)
      */
     protected bool $allowCredentials = true;
 
     /**
-     * 预检请求缓存时间 (秒)
+     * 预检请求缓存时间
      */
     protected int $maxAge = 86400;
 

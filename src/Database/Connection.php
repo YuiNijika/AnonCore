@@ -29,6 +29,7 @@ class Connection
             'username' => Env::get('DATABASE_USER', 'root'),
             'password' => Env::get('DATABASE_PASSWORD', ''),
             'charset' => Env::get('DATABASE_CHARSET', 'utf8mb4'),
+            'prefix' => Env::get('DATABASE_PREFIX', ''),
         ], $config);
     }
 

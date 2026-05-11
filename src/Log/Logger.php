@@ -99,7 +99,7 @@ class Logger
     }
 
     /**
-     * 将所有内存日志强制落盘（在应用 Shutdown 时自动调用）
+     * 将所有内存日志强制落盘
      */
     public function flush(): void
     {

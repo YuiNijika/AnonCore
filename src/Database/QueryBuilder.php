@@ -33,11 +33,17 @@ class QueryBuilder
     /**
      * 设置操作表
      * @param string $table 表名
+     * @param bool $prefix 是否自动添加表前缀
      * @return self
      */
-    public function table(string $table): self
+    public function table(string $table, bool $prefix = true): self
     {
-        $this->table = $table;
+        if ($prefix) {
+            $tablePrefix = $this->connection->getConfig('prefix', '');
+            $this->table = $tablePrefix . $table;
+        } else {
+            $this->table = $table;
+        }
         return $this;
     }
 

@@ -81,14 +81,19 @@ class Router
     }
 
     /**
-     * @var array 路由组前缀堆栈
+     * @var array 当前正在解析的路由组前缀堆栈
      */
     protected array $groupPrefixStack = [];
 
     /**
-     * @var array 路由组中间件堆栈
+     * @var array 当前正在解析的路由组中间件堆栈
      */
     protected array $groupMiddlewareStack = [];
+
+    /**
+     * @var array 暂存通过 middleware() 链式调用传入的前置中间件堆栈
+     */
+    protected array $pendingMiddlewareStack = [];
 
     /**
      * @var RouteItem[] 暂存刚注册的单个路由, 用于后置链式调用
@@ -133,13 +138,13 @@ class Router
         }
 
         // 否则是前置调用 Route::middleware()->group()
-        $this->groupMiddlewareStack[] = $middleware;
+        $this->pendingMiddlewareStack[] = $middleware;
         return $this;
     }
 
     /**
      * 注册路由组
-     * 使用堆栈管理上下文
+     * 支持任意深度嵌套，使用堆栈管理上下文
      * @param string|array $attributes 路由组属性 (如 prefix, middleware)
      * @param callable $callback 组内路由闭包
      * @return $this
@@ -160,15 +165,17 @@ class Router
             $middleware = [$middleware];
         }
 
-        // 提取通过 middleware() 暂存的中间件
-        if (!empty($this->groupMiddlewareStack)) {
-            $pendingMiddlewares = array_pop($this->groupMiddlewareStack);
+        // 提取通过 middleware() 暂存的前置中间件
+        if (!empty($this->pendingMiddlewareStack)) {
+            $pendingMiddlewares = array_pop($this->pendingMiddlewareStack);
             $middleware = array_merge($pendingMiddlewares, $middleware);
         }
 
-        $oldPrefix = $this->groupPrefix;
-        $oldMiddlewares = $this->groupMiddlewares;
+        // 入栈当前状态
+        array_push($this->groupPrefixStack, $this->groupPrefix);
+        array_push($this->groupMiddlewareStack, $this->groupMiddlewares);
 
+        // 更新当前上下文
         $this->groupPrefix = $this->groupPrefix . '/' . trim($prefix, '/');
         if ($this->groupPrefix === '/') {
             $this->groupPrefix = '';
@@ -178,12 +185,12 @@ class Router
         // 触发闭包注册组内路由
         call_user_func($callback, $this);
 
-        // 组调用结束后，同样清空暂存记录
+        // 组调用结束后，清空暂存记录
         $this->lastRouteItems = [];
 
-        // 出栈恢复状态
-        $this->groupPrefix = $oldPrefix;
-        $this->groupMiddlewares = $oldMiddlewares;
+        // 出栈恢复上级状态
+        $this->groupPrefix = array_pop($this->groupPrefixStack);
+        $this->groupMiddlewares = array_pop($this->groupMiddlewareStack);
 
         return $this;
     }
