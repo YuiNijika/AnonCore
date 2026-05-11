@@ -14,9 +14,10 @@ class Connection
     protected ?PDO $pdo = null;
 
     /**
-     * @var array 连接配置
+     * @var array 配置信息
      */
     protected array $config = [];
+    protected int $transactions = 0;
 
     public function __construct(array $config = [])
     {
@@ -114,7 +115,7 @@ class Connection
             PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION, // 错误抛出异常
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,       // 默认返回关联数组
             PDO::ATTR_EMULATE_PREPARES   => false,                  // 禁用模拟预处理，使用真实的预处理
-            PDO::ATTR_PERSISTENT         => true,                   // 开启持久化连接提升性能
+            PDO::ATTR_PERSISTENT         => true,                   // 开启持久化连接
         ];
 
         try {
@@ -127,25 +128,37 @@ class Connection
     /**
      * 开启事务
      */
-    public function beginTransaction(): bool
+    public function beginTransaction(): void
     {
-        return $this->getPdo()->beginTransaction();
+        $this->getPdo();
+        if ($this->transactions === 0) {
+            $this->pdo->beginTransaction();
+        }
+        $this->transactions++;
     }
 
     /**
      * 提交事务
      */
-    public function commit(): bool
+    public function commit(): void
     {
-        return $this->getPdo()->commit();
+        $this->getPdo();
+        if ($this->transactions === 1) {
+            $this->pdo->commit();
+        }
+        $this->transactions = max(0, $this->transactions - 1);
     }
 
     /**
      * 回滚事务
      */
-    public function rollBack(): bool
+    public function rollBack(): void
     {
-        return $this->getPdo()->rollBack();
+        $this->getPdo();
+        if ($this->transactions === 1) {
+            $this->pdo->rollBack();
+        }
+        $this->transactions = max(0, $this->transactions - 1);
     }
 
     /**

@@ -14,6 +14,16 @@ class Logger
      */
     protected string $dateFormat = 'Y-m-d';
 
+    /**
+     * @var array 内存中的日志缓冲池
+     */
+    protected array $logBuffer = [];
+
+    /**
+     * @var bool 是否已经注册了自动刷新日志的钩子
+     */
+    protected bool $flushRegistered = false;
+
     public function __construct(string $logPath = '')
     {
         $this->logPath = $logPath ?: (defined('RUNTIME_PATH') ? RUNTIME_PATH . '/log' : __DIR__ . '/../../runtime/log');
@@ -50,8 +60,12 @@ class Logger
      */
     public function log(string $level, string|array $message, string $type = 'app'): void
     {
-        $file = $this->getLogFile($type);
-        $time = date('Y-m-d H:i:s');
+        if (!$this->flushRegistered) {
+            register_shutdown_function([$this, 'flush']);
+            $this->flushRegistered = true;
+        }
+
+        $time = date('Y-m-d H:i:s.v'); // 增加毫秒级时间戳
         
         if (is_array($message) || is_object($message)) {
             $message = json_encode($message, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
@@ -59,8 +73,39 @@ class Logger
 
         $content = sprintf("[%s] [%s] %s" . PHP_EOL, $time, strtoupper($level), $message);
         
-        // 追加写入文件，并加锁
+        $this->logBuffer[$type][] = $content;
+        
+        // 当单个请求产生大量日志时（例如超过 1000 条），触发自动落盘防止内存泄漏
+        if (count($this->logBuffer[$type]) >= 1000) {
+            $this->flushType($type);
+        }
+    }
+
+    /**
+     * 将指定分类的内存日志强制落盘
+     */
+    protected function flushType(string $type): void
+    {
+        if (empty($this->logBuffer[$type])) {
+            return;
+        }
+
+        $file = $this->getLogFile($type);
+        $content = implode('', $this->logBuffer[$type]);
+        
         file_put_contents($file, $content, FILE_APPEND | LOCK_EX);
+        
+        $this->logBuffer[$type] = [];
+    }
+
+    /**
+     * 将所有内存日志强制落盘（在应用 Shutdown 时自动调用）
+     */
+    public function flush(): void
+    {
+        foreach (array_keys($this->logBuffer) as $type) {
+            $this->flushType($type);
+        }
     }
 
     /**

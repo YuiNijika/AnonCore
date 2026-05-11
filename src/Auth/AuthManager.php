@@ -57,7 +57,7 @@ class AuthManager
     }
 
     /**
-     * 退出登录 (JWT无状态，通常客户端清除Token即可，服务端如需黑名单可在此扩展)
+     * 退出登录
      */
     public function logout(): bool
     {

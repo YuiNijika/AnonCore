@@ -32,7 +32,7 @@ class Widget
     }
 
     /**
-     * 调用（渲染）一个小部件
+     * 调用一个小部件
      * 
      * @param string $name 小部件名称
      * @param array $params 传递给小部件的参数
@@ -47,12 +47,12 @@ class Widget
 
         $handler = self::$widgets[$name];
 
-        // 1. 如果是闭包，直接执行
+        // 如果是闭包，直接执行
         if (is_callable($handler)) {
             return call_user_func_array($handler, $params);
         }
 
-        // 2. 如果是类名，实例化并调用 render 方法
+        // 如果是类名，实例化并调用 render 方法
         if (is_string($handler) && class_exists($handler)) {
             $instance = App::getInstance()->make($handler);
             if (!method_exists($instance, 'render')) {

@@ -107,4 +107,51 @@ class Redis implements Contract
     {
         return $this->redis->incrBy($this->getRealKey($key), $value);
     }
+
+    public function decrement(string $key, int $value = 1): int|bool
+    {
+        return $this->redis->decrBy($this->getRealKey($key), $value);
+    }
+
+    public function remember(string $key, int $ttl, callable $callback): mixed
+    {
+        $value = $this->get($key);
+
+        if ($value !== null) {
+            return $value;
+        }
+
+        $value = $callback();
+        $this->set($key, $value, $ttl);
+
+        return $value;
+    }
+
+    public function pull(string $key, mixed $default = null): mixed
+    {
+        $realKey = $this->getRealKey($key);
+        
+        // 开启事务来保证获取并删除的原子性
+        $this->redis->multi();
+        $this->redis->get($realKey);
+        $this->redis->del($realKey);
+        $results = $this->redis->exec();
+
+        $value = $results[0] ?? false;
+
+        if ($value === false) {
+            return $default;
+        }
+
+        if (is_numeric($value)) {
+            return str_contains($value, '.') ? (float)$value : (int)$value;
+        }
+
+        $unserialized = @unserialize($value);
+        if ($unserialized !== false || $value === 'b:0;') {
+            return $unserialized;
+        }
+        
+        return $value;
+    }
 }

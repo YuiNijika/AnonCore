@@ -9,7 +9,7 @@ use Anon\Core\Foundation\App;
 abstract class Json implements JsonSerializable
 {
     /**
-     * @var mixed 基础资源数据（通常是 Model 实例）
+     * @var mixed 基础资源数据
      */
     public mixed $resource;
 

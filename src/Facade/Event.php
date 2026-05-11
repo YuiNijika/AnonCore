@@ -3,7 +3,7 @@
 namespace Anon\Core\Facade;
 
 /**
- * 事件外观类 (Facade)
+ * 事件外观类
  * 
  * @method static void listen(string $event, callable|string|array $listener)
  * @method static array dispatch(string|object $event, mixed $payload = [])

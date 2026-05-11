@@ -23,7 +23,7 @@ class Cors
     protected array $allowedHeaders = ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'];
 
     /**
-     * 是否允许携带凭证 (Cookies, Authorization headers等)
+     * 是否允许携带凭证
      */
     protected bool $allowCredentials = true;
 

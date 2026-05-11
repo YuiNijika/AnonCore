@@ -46,7 +46,7 @@ class UploadedFile
     }
 
     /**
-     * 获取文件大小（字节）
+     * 获取文件大小
      */
     public function getSize(): int
     {

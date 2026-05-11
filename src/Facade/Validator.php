@@ -3,7 +3,7 @@
 namespace Anon\Core\Facade;
 
 /**
- * 验证器外观类 (Facade)
+ * 验证器外观类
  * 
  * @method static \Anon\Core\Validation\Validator make(array $data, array $rules, array $messages = [])
  */

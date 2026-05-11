@@ -9,8 +9,15 @@ class QueryBuilder
      */
     protected Connection $connection;
 
+    /**
+     * @var string 操作的表名
+     */
     protected string $table = '';
     protected array $select = ['*'];
+
+    /**
+     * @var array 查询条件
+     */
     protected array $wheres = [];
     protected array $joins = [];
     protected array $bindings = [];
@@ -208,6 +215,57 @@ class QueryBuilder
     }
 
     /**
+     * 分块处理数据，极大降低大数据处理时的内存消耗
+     * @param int $count 每次获取的数量
+     * @param callable $callback 回调函数，返回 false 时终止处理
+     * @return bool
+     */
+    public function chunk(int $count, callable $callback): bool
+    {
+        $page = 1;
+        do {
+            $clone = clone $this;
+            $results = $clone->limit($count, ($page - 1) * $count)->get();
+            $countResults = count($results);
+
+            if ($countResults == 0) {
+                break;
+            }
+
+            if ($callback($results, $page) === false) {
+                return false;
+            }
+
+            unset($results);
+            $page++;
+        } while ($countResults == $count);
+
+        return true;
+    }
+
+    /**
+     * 使用游标获取数据
+     * @return \Generator
+     */
+    public function cursor(): \Generator
+    {
+        $sql = $this->toSql();
+        $pdo = $this->connection->getPdo();
+        
+        $stmt = $pdo->prepare($sql);
+        
+        foreach ($this->bindings as $key => $value) {
+            $stmt->bindValue(is_string($key) ? $key : $key + 1, $value);
+        }
+        
+        $stmt->execute();
+        
+        while ($record = $stmt->fetch(\PDO::FETCH_ASSOC)) {
+            yield $record;
+        }
+    }
+
+    /**
      * 执行查询并获取第一条结果
      * @return array|null|Model
      */
@@ -317,7 +375,7 @@ class QueryBuilder
             return implode('.', array_map(fn($part) => $part === '*' ? $part : "{$wrapCharLeft}{$part}{$wrapCharRight}", explode('.', $value)));
         }
         
-        // 防止已经被包裹，或者包含聚合函数如 COUNT(id) 等复杂表达式
+        // 防止已经被包裹，或者包含聚合函数如 COUNT 等复杂表达式
         if (str_contains($value, $wrapCharLeft) || str_contains($value, '(') || str_contains($value, ' ')) {
             return $value;
         }
@@ -326,7 +384,6 @@ class QueryBuilder
 
     /**
      * 插入数据
-
      * @param array $values 关联数组键值对
      * @return bool|string 成功返回最后插入的ID，失败抛出异常
      */
@@ -339,6 +396,38 @@ class QueryBuilder
         
         $this->connection->statement($sql, array_values($values));
         return $this->connection->lastInsertId();
+    }
+
+    /**
+     * 批量插入数据，单次 SQL 操作
+     * @param array $values 必须是二维关联数组
+     * @return int 受影响的行数
+     */
+    public function insertAll(array $values): int
+    {
+        if (empty($values)) {
+            return 0;
+        }
+
+        // 取第一行数据的键作为字段名
+        $firstRow = reset($values);
+        $columns = implode(', ', array_map([$this, 'wrap'], array_keys($firstRow)));
+
+        $placeholders = [];
+        $bindings = [];
+
+        $singlePlaceholder = '(' . implode(', ', array_fill(0, count($firstRow), '?')) . ')';
+
+        foreach ($values as $row) {
+            $placeholders[] = $singlePlaceholder;
+            foreach ($row as $value) {
+                $bindings[] = $value;
+            }
+        }
+
+        $sql = "INSERT INTO " . $this->wrap($this->table) . " ({$columns}) VALUES " . implode(', ', $placeholders);
+
+        return $this->connection->statement($sql, $bindings);
     }
 
     /**

@@ -42,7 +42,7 @@ class File implements Contract
             return $default;
         }
 
-        // 检查是否过期 (ttl = 0 表示永不过期)
+        // 检查是否过期
         if ($data['expire'] !== 0 && time() > $data['expire']) {
             $this->delete($key);
             return $default;
@@ -156,5 +156,35 @@ class File implements Contract
 
         fclose($fp);
         return false;
+    }
+
+    public function decrement(string $key, int $value = 1): int|bool
+    {
+        return $this->increment($key, -$value);
+    }
+
+    public function remember(string $key, int $ttl, callable $callback): mixed
+    {
+        $value = $this->get($key);
+
+        if ($value !== null) {
+            return $value;
+        }
+
+        $value = $callback();
+        $this->set($key, $value, $ttl);
+
+        return $value;
+    }
+
+    public function pull(string $key, mixed $default = null): mixed
+    {
+        $value = $this->get($key, $default);
+        
+        if ($value !== $default) {
+            $this->delete($key);
+        }
+        
+        return $value;
     }
 }

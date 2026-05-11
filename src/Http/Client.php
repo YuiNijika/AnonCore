@@ -7,7 +7,7 @@ use Exception;
 class Client
 {
     /**
-     * @var int 默认超时时间（秒）
+     * @var int 默认超时时间
      */
     protected int $timeout = 10;
 

@@ -132,7 +132,7 @@ class Router
             return $this;
         }
 
-        // 否则是前置调用 Route::middleware(...)->group(...)
+        // 否则是前置调用 Route::middleware()->group()
         $this->groupMiddlewareStack[] = $middleware;
         return $this;
     }
@@ -218,7 +218,7 @@ class Router
 
         $this->routes[$method][$uri] = $routeItem;
         
-        // 暂存最后一次注册的路由，供后置 ->middleware() 调用
+        // 暂存最后一次注册的路由，供后置 middleware 调用
         $this->lastRouteItems[] = $routeItem;
         
         return $routeItem;
@@ -297,6 +297,11 @@ class Router
     }
 
     /**
+     * @var array 路由中间件实例化缓存
+     */
+    protected array $middlewareInstanceCache = [];
+
+    /**
      * 穿过路由特定的中间件栈执行路由
      * @param RouteItem $routeItem
      * @param Request $request
@@ -317,7 +322,7 @@ class Router
         for ($i = count($middlewares) - 1; $i >= 0; $i--) {
             $middlewareDef = $middlewares[$i];
             
-            // 解析中间件参数 (例如 Throttle::class . ':3,60')
+            // 解析中间件参数
             $middlewareClass = $middlewareDef;
             $middlewareArgs = [];
             if (str_contains($middlewareDef, ':')) {
@@ -325,25 +330,38 @@ class Router
                 $middlewareArgs = explode(',', $argsStr);
             }
 
-            if (class_exists($middlewareClass)) {
-                $middlewareInstance = new $middlewareClass();
-                if (method_exists($middlewareInstance, 'handle')) {
-                    // 注意：这里的 $next 捕获了外层（或上一个）的闭包引用
-                    $next = function ($req) use ($middlewareInstance, $next, $middlewareArgs) {
-                        try {
-                            return call_user_func_array([$middlewareInstance, 'handle'], array_merge([$req, $next], $middlewareArgs));
-                        } catch (\Throwable $e) {
-                            // 洋葱模型异常穿透必须支持拦截
-                            throw $e;
-                        }
-                    };
+            // 缓存中间件实例
+            if (!isset($this->middlewareInstanceCache[$middlewareClass])) {
+                if (class_exists($middlewareClass)) {
+                    $this->middlewareInstanceCache[$middlewareClass] = new $middlewareClass();
+                } else {
+                    continue;
                 }
+            }
+            
+            $middlewareInstance = $this->middlewareInstanceCache[$middlewareClass];
+
+            if (method_exists($middlewareInstance, 'handle')) {
+                // 这里的 $next 捕获了外层或上一个的闭包引用
+                $next = function ($req) use ($middlewareInstance, $next, $middlewareArgs) {
+                    try {
+                        return call_user_func_array([$middlewareInstance, 'handle'], array_merge([$req, $next], $middlewareArgs));
+                    } catch (\Throwable $e) {
+                        // 洋葱模型异常穿透必须支持拦截
+                        throw $e;
+                    }
+                };
             }
         }
 
         // 触发调用栈
         return call_user_func($next, $request);
     }
+
+    /**
+     * @var array 控制器方法反射缓存
+     */
+    protected array $controllerReflectionCache = [];
 
     /**
      * 执行路由动作
@@ -361,20 +379,24 @@ class Router
         $routeParams = $request->getRouteParams() ?? [];
         $injectParams = array_merge(['request' => $request], $routeParams);
 
-        // 1. 如果是闭包函数
+        // 如果是闭包函数
         if (is_callable($action)) {
             // 利用反射自动注入参数
             $reflect = new \ReflectionFunction($action);
             $args = $this->resolveMethodDependencies($reflect, $injectParams, $app);
             $result = call_user_func_array($action, $args);
         } 
-        // 2. 如果是数组形式的控制器方法调用
+        // 如果是数组形式的控制器方法调用
         else if (is_array($action) && count($action) === 2) {
             [$class, $method] = $action;
             if (class_exists($class)) {
                 $controller = $app->make($class);
                 if (method_exists($controller, $method)) {
-                    $reflect = new \ReflectionMethod($controller, $method);
+                    $cacheKey = $class . '::' . $method;
+                    if (!isset($this->controllerReflectionCache[$cacheKey])) {
+                        $this->controllerReflectionCache[$cacheKey] = new \ReflectionMethod($controller, $method);
+                    }
+                    $reflect = $this->controllerReflectionCache[$cacheKey];
                     $args = $this->resolveMethodDependencies($reflect, $injectParams, $app);
                     $result = call_user_func_array([$controller, $method], $args);
                 } else {
@@ -384,14 +406,18 @@ class Router
                 throw new \Exception("Controller class {$class} not found");
             }
         }
-        // 3. 如果是字符串形式的控制器调用
+        // 如果是字符串形式的控制器调用
         else if (is_string($action) && str_contains($action, '@')) {
             [$class, $method] = explode('@', $action);
             $class = "Anon\\Controller\\" . ltrim($class, '\\');
             if (class_exists($class)) {
                 $controller = $app->make($class);
                 if (method_exists($controller, $method)) {
-                    $reflect = new \ReflectionMethod($controller, $method);
+                    $cacheKey = $class . '::' . $method;
+                    if (!isset($this->controllerReflectionCache[$cacheKey])) {
+                        $this->controllerReflectionCache[$cacheKey] = new \ReflectionMethod($controller, $method);
+                    }
+                    $reflect = $this->controllerReflectionCache[$cacheKey];
                     $args = $this->resolveMethodDependencies($reflect, $injectParams, $app);
                     $result = call_user_func_array([$controller, $method], $args);
                 } else {
@@ -414,7 +440,7 @@ class Router
     }
 
     /**
-     * 自动解析方法参数依赖（DI）
+     * 自动解析方法参数依赖
      */
     protected function resolveMethodDependencies(\ReflectionFunctionAbstract $reflect, array $routeParams, App $app): array
     {
@@ -429,7 +455,7 @@ class Router
             if ($type instanceof \ReflectionNamedType && !$type->isBuiltin()) {
                 $className = $type->getName();
                 
-                // 特殊处理 Request 及其子类 (如 FormRequest)
+                // 特殊处理 Request 及其子类
                 if (is_a($className, Request::class, true)) {
                     // 如果参数类型是特定的 FormRequest，我们需要实例化它并执行验证
                     if ($className !== Request::class && is_subclass_of($className, \Anon\Core\Http\FormRequest::class)) {

@@ -86,4 +86,19 @@ class Manager implements Contract
     {
         return $this->store()->increment($key, $value);
     }
+
+    public function decrement(string $key, int $value = 1): int|bool
+    {
+        return $this->store()->decrement($key, $value);
+    }
+
+    public function remember(string $key, int $ttl, callable $callback): mixed
+    {
+        return $this->store()->remember($key, $ttl, $callback);
+    }
+
+    public function pull(string $key, mixed $default = null): mixed
+    {
+        return $this->store()->pull($key, $default);
+    }
 }

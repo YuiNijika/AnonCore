@@ -53,7 +53,7 @@ class QueueManager
     }
 
     /**
-     * 从队列中弹出并执行任务（阻塞模式）
+     * 从队列中弹出并执行任务
      */
     public function pop(?string $queue = null, int $timeout = 3): ?Job
     {

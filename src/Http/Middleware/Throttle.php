@@ -15,7 +15,7 @@ class Throttle
     protected int $maxAttempts = 60;
 
     /**
-     * 衰减时间（秒）
+     * 衰减时间
      */
     protected int $decaySeconds = 60;
 

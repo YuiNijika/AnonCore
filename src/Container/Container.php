@@ -36,6 +36,11 @@ class Container
     protected array $reflectionCache = [];
 
     /**
+     * @var array 缓存类的反射参数信息
+     */
+    protected array $dependenciesCache = [];
+
+    /**
      * 获取当前容器的单例实例
      */
     public static function getInstance(): static
@@ -167,7 +172,13 @@ class Container
     protected function bindParams(ReflectionMethod $reflect, array $vars = []): array
     {
         $args = [];
-        $params = $reflect->getParameters();
+        $cacheKey = $reflect->getDeclaringClass()->getName() . '::' . $reflect->getName();
+
+        if (!isset($this->dependenciesCache[$cacheKey])) {
+            $this->dependenciesCache[$cacheKey] = $reflect->getParameters();
+        }
+
+        $params = $this->dependenciesCache[$cacheKey];
         
         foreach ($params as $param) {
             $name = $param->getName();

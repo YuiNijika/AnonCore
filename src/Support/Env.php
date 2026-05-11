@@ -44,7 +44,7 @@ class Env
      */
     public function get(string $key, mixed $default = null): mixed
     {
-        // 兼容 putenv() 和 $_ENV 的读取
+        // 兼容 putenv 和 $_ENV 的读取
         if (isset($this->data[$key])) {
             return $this->data[$key];
         }
@@ -73,7 +73,7 @@ class Env
     }
 
     /**
-     * 解析环境变量的值（处理 bool 等类型）
+     * 解析环境变量的值
      * @param mixed $value
      * @return mixed
      */

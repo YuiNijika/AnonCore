@@ -33,12 +33,12 @@ abstract class FormRequest extends Request
      */
     public function validateResolved(): void
     {
-        // 1. 权限验证
+        // 权限验证
         if (!$this->authorize()) {
             throw new HttpException(403, 'This action is unauthorized.');
         }
 
-        // 2. 数据验证
+        // 数据验证
         $rules = $this->rules();
         if (empty($rules)) {
             return;

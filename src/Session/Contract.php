@@ -30,7 +30,7 @@ interface Contract
     public function clear(): void;
 
     /**
-     * 销毁 Session（同时清除数据并使 Session ID 失效）
+     * 销毁 Session
      */
     public function destroy(): void;
 

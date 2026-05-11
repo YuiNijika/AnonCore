@@ -15,7 +15,7 @@ class RouteItem
     public string $uri;
 
     /**
-     * @var string|null 编译后的正则表达式（仅动态路由有）
+     * @var string|null 编译后的正则表达式
      */
     public ?string $pattern = null;
 

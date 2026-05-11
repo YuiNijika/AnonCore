@@ -29,7 +29,7 @@ class Migrator
             batch INT NOT NULL
         )";
         // SQLite 和其他数据库的兼容：
-        // 这里使用尽量通用的语法，如果不支持 AUTO_INCREMENT 可能会报错 (比如 SQLite 应该用 AUTOINCREMENT)
+        // 这里使用尽量通用的语法，如果不支持 AUTO_INCREMENT 可能会报错
         // 简单处理：判断数据库驱动
         $driver = DB::getConnection()->getAttribute(PDO::ATTR_DRIVER_NAME);
         if ($driver === 'sqlite') {

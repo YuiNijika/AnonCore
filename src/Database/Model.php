@@ -33,12 +33,12 @@ abstract class Model implements JsonSerializable, ArrayAccess
     const UPDATED_AT = 'updated_at';
 
     /**
-     * @var array 模型数据
+     * @var array 模型的属性数据
      */
     protected array $attributes = [];
 
     /**
-     * @var array 原始数据（用于脏数据检查）
+     * @var array 原始数据，用于判断是否有修改
      */
     protected array $original = [];
 
@@ -185,7 +185,7 @@ abstract class Model implements JsonSerializable, ArrayAccess
      */
     public function setAttribute(string $key, $value): self
     {
-        // 检查是否有 Setter (Mutators)
+        // 检查是否有 Setter
         $method = 'set' . str_replace('_', '', ucwords($key, '_')) . 'Attribute';
         if (method_exists($this, $method)) {
             $this->$method($value);
@@ -213,7 +213,7 @@ abstract class Model implements JsonSerializable, ArrayAccess
     }
 
     /**
-     * 保存模型 (Insert or Update)
+     * 保存模型
      */
     public function save(): bool
     {

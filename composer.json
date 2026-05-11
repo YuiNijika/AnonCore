@@ -16,6 +16,8 @@
     ],
     "minimum-stability": "dev",
         "require": {
-        "php": ">=8.0"
+        "php": ">=8.0",
+        "erusev/parsedown": "dev-master",
+        "league/flysystem": "4.x-dev"
     }
 }

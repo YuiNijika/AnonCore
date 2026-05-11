@@ -19,7 +19,7 @@ class QueueWork extends Command
 
         while (true) {
             try {
-                // pop 方法是阻塞的 (brPop)，如果超时没有任务，会返回 null，不用担心 CPU 空转
+                // pop 方法是阻塞的，如果超时没有任务，会返回 null，不用担心 CPU 空转
                 $job = Queue::pop($queueName, 3);
                 
                 if ($job) {

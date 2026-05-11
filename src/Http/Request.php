@@ -146,23 +146,62 @@ class Request
      * 获取指定名称的输入参数
      * @param string|null $key 参数名称
      * @param mixed $default 默认值
+     * @param string|null $filter 过滤方法，支持 'int', 'float', 'string', 'bool', 'email', 'url', 'xss'
      * @return mixed
      */
-    public function input(?string $key = null, mixed $default = null): mixed
+    public function input(?string $key = null, mixed $default = null, ?string $filter = null): mixed
     {
         if ($key === null) {
-            return array_replace($this->get, $this->post, is_array($this->body) ? $this->body : []);
+            $data = array_replace($this->get, $this->post, is_array($this->body) ? $this->body : []);
+            if ($filter !== null) {
+                array_walk_recursive($data, function (&$val) use ($filter) {
+                    $val = $this->filterValue($val, $filter);
+                });
+            }
+            return $data;
         }
+        
+        $value = $default;
         if (isset($this->get[$key])) {
-            return $this->get[$key];
+            $value = $this->get[$key];
+        } elseif (isset($this->post[$key])) {
+            $value = $this->post[$key];
+        } elseif (is_array($this->body) && isset($this->body[$key])) {
+            $value = $this->body[$key];
         }
-        if (isset($this->post[$key])) {
-            return $this->post[$key];
+
+        if ($filter !== null && $value !== null && $value !== $default) {
+            $value = $this->filterValue($value, $filter);
         }
-        if (is_array($this->body) && isset($this->body[$key])) {
-            return $this->body[$key];
+
+        return $value;
+    }
+
+    /**
+     * 对单个值进行安全过滤
+     * @param mixed $value
+     * @param string $filter
+     * @return mixed
+     */
+    protected function filterValue(mixed $value, string $filter): mixed
+    {
+        if (is_array($value)) {
+            foreach ($value as $k => $v) {
+                $value[$k] = $this->filterValue($v, $filter);
+            }
+            return $value;
         }
-        return $default;
+
+        return match ($filter) {
+            'int' => filter_var($value, FILTER_VALIDATE_INT) !== false ? (int) $value : 0,
+            'float' => filter_var($value, FILTER_VALIDATE_FLOAT) !== false ? (float) $value : 0.0,
+            'string' => filter_var($value, FILTER_SANITIZE_FULL_SPECIAL_CHARS),
+            'bool' => filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? false,
+            'email' => filter_var($value, FILTER_VALIDATE_EMAIL) !== false ? $value : '',
+            'url' => filter_var($value, FILTER_VALIDATE_URL) !== false ? $value : '',
+            'xss' => htmlspecialchars((string) $value, ENT_QUOTES | ENT_HTML5, 'UTF-8'),
+            default => $value,
+        };
     }
 
     /**
@@ -246,7 +285,7 @@ class Request
     }
 
     /**
-     * 获取上传的文件 (返回 UploadedFile 实例或数组)
+     * 获取上传的文件
      * @param string|null $key
      * @return UploadedFile|UploadedFile[]|null
      */
