@@ -39,7 +39,10 @@ class QueryBuilder
     public function table(string $table, bool $prefix = true): self
     {
         if ($prefix) {
-            $tablePrefix = $this->connection->getConfig('prefix', '');
+            $tablePrefix = $this->connection->getConfig('DATABASE_PREFIX', '');
+            if ($tablePrefix === '') {
+                $tablePrefix = $this->connection->getConfig('prefix', '');
+            }
             $this->table = $tablePrefix . $table;
         } else {
             $this->table = $table;
