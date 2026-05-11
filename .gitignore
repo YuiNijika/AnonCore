@@ -1,5 +1,5 @@
 # Composer
 /vendor/
-
 /runtime/
 /.env
+composer.lock
