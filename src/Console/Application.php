@@ -26,6 +26,7 @@ class Application
     protected function registerDefaultCommands(): void
     {
         $this->add(new Commands\Dev());
+        $this->add(new Commands\Run());
         $this->add(new Commands\MakeController());
         $this->add(new Commands\MakeModel());
         $this->add(new Commands\MakeRequest());
@@ -69,7 +70,8 @@ class Application
             return 0;
         }
         if ($commandName === '--version' || $commandName === '-v' || $commandName === 'version') {
-            echo "Anon Framework Next \033[32m{$this->version}\033[0m\n";
+            $version = class_exists(\Anon\Core\Facade\App::class) ? \Anon\Core\Facade\App::version() : $this->version;
+            echo "Anon Framework Next \033[32m{$version}\033[0m\n";
             return 0;
         }
 
