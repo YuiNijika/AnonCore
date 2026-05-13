@@ -214,6 +214,26 @@ class QueryBuilder
     }
 
     /**
+     * 设置偏移量
+     * @param int $offset 偏移量
+     * @return self
+     */
+    public function offset(int $offset): self
+    {
+        // 只有在 limit 已经设置的情况下，offset 才有效
+        if (!empty($this->limit)) {
+            // 解析出原有的 limit
+            preg_match('/LIMIT\s+(?:(\d+)\s*,\s*)?(\d+)/i', $this->limit, $matches);
+            $limit = isset($matches[2]) ? (int)$matches[2] : (isset($matches[1]) ? (int)$matches[1] : 0);
+            $this->limit = "LIMIT {$offset}, {$limit}";
+        } else {
+            // 如果 limit 未设置，默认给一个很大的 limit 值以使 offset 生效
+            $this->limit = "LIMIT {$offset}, 18446744073709551615";
+        }
+        return $this;
+    }
+
+    /**
      * 执行查询并获取所有结果
      * @return array
      */
