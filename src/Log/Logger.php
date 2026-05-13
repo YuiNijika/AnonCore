@@ -24,10 +24,16 @@ class Logger
      */
     protected bool $flushRegistered = false;
 
+    /**
+     * @var bool 是否启用 debug 模式
+     */
+    protected bool $isDebug;
+
     public function __construct(string $logPath = '')
     {
         $this->logPath = $logPath ?: (defined('RUNTIME_PATH') ? RUNTIME_PATH . '/log' : __DIR__ . '/../../runtime/log');
         $this->ensureDirectoryExists($this->logPath);
+        $this->isDebug = defined('APP_DEBUG') ? (bool) APP_DEBUG : (isset($_ENV['APP_DEBUG']) ? (bool) $_ENV['APP_DEBUG'] : false);
     }
 
     /**
@@ -129,6 +135,9 @@ class Logger
      */
     public function debug(string|array $message, string $type = 'app'): void
     {
+        if (!$this->isDebug) {
+            return;
+        }
         $this->log('debug', $message, $type);
     }
 
@@ -138,5 +147,22 @@ class Logger
     public function warning(string|array $message, string $type = 'app'): void
     {
         $this->log('warning', $message, $type);
+    }
+
+    /**
+     * 设置是否启用 debug 模式
+     */
+    public function setDebug(bool $isDebug): self
+    {
+        $this->isDebug = $isDebug;
+        return $this;
+    }
+
+    /**
+     * 获取当前是否启用 debug 模式
+     */
+    public function isDebug(): bool
+    {
+        return $this->isDebug;
     }
 }
