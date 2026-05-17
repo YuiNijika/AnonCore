@@ -3,6 +3,7 @@
 namespace Anon\Core\Cache;
 
 use Exception;
+use Anon\Core\Facade\Config;
 use Anon\Core\Facade\Env;
 
 class Manager implements Contract
@@ -19,7 +20,7 @@ class Manager implements Contract
 
     public function __construct()
     {
-        $this->defaultDriver = Env::get('CACHE_DRIVER', 'file');
+        $this->defaultDriver = (string) Config::get('cache.default', Env::get('CACHE_DRIVER', 'file'));
     }
 
     /**

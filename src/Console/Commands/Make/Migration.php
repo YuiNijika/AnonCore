@@ -1,10 +1,10 @@
 <?php
 
-namespace Anon\Core\Console\Commands;
+namespace Anon\Core\Console\Commands\Make;
 
 use Anon\Core\Console\Command;
 
-class MakeMigration extends Command
+class Migration extends Command
 {
     protected string $name = 'make:migration';
     protected string $description = 'Create a new migration file';

@@ -1,10 +1,10 @@
 <?php
 
-namespace Anon\Core\Console\Commands;
+namespace Anon\Core\Console\Commands\Db;
 
 use Anon\Core\Console\Command;
 
-class DbSeed extends Command
+class Seed extends Command
 {
     protected string $name = 'db:seed';
     protected string $description = 'Seed the database with records';

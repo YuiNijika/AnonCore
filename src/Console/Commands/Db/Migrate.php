@@ -1,6 +1,6 @@
 <?php
 
-namespace Anon\Core\Console\Commands;
+namespace Anon\Core\Console\Commands\Db;
 
 use Anon\Core\Console\Command;
 use Anon\Core\Database\Migration\Migrator;

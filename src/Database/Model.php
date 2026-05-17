@@ -4,6 +4,11 @@ namespace Anon\Core\Database;
 
 use JsonSerializable;
 use ArrayAccess;
+use Anon\Core\Support\Str;
+use Anon\Core\Database\Relations\HasOne;
+use Anon\Core\Database\Relations\HasMany;
+use Anon\Core\Database\Relations\BelongsTo;
+use Anon\Core\Database\Relations\Relation;
 
 abstract class Model implements JsonSerializable, ArrayAccess
 {
@@ -33,9 +38,19 @@ abstract class Model implements JsonSerializable, ArrayAccess
     const UPDATED_AT = 'updated_at';
 
     /**
+     * @var string 软删除字段名
+     */
+    const DELETED_AT = 'deleted_at';
+
+    /**
      * @var array 模型的属性数据
      */
     protected array $attributes = [];
+
+    /**
+     * @var array 已加载的关联关系
+     */
+    protected array $relations = [];
 
     /**
      * @var array 原始数据，用于判断是否有修改
@@ -55,7 +70,12 @@ abstract class Model implements JsonSerializable, ArrayAccess
     /**
      * @var array 不可批量赋值的字段
      */
-    protected array $guarded = ['*'];
+    protected array $guarded = [];
+
+    /**
+     * @var bool 是否启用软删除
+     */
+    protected bool $softDelete = false;
 
     /**
      * 构造函数
@@ -117,6 +137,9 @@ abstract class Model implements JsonSerializable, ArrayAccess
         
         $builder = new ModelQueryBuilder($connection, static::class);
         $builder->table($instance->getTable());
+        if ($instance->usesSoftDelete()) {
+            $builder->enableSoftDelete(static::DELETED_AT);
+        }
         
         return $builder;
     }
@@ -181,6 +204,20 @@ abstract class Model implements JsonSerializable, ArrayAccess
     }
 
     /**
+     * 直接设置原始属性，常用于数据库结果集回填
+     */
+    public function setRawAttributes(array $attributes, bool $syncOriginal = true): self
+    {
+        $this->attributes = $attributes;
+
+        if ($syncOriginal) {
+            $this->original = $attributes;
+        }
+
+        return $this;
+    }
+
+    /**
      * 设置属性
      */
     public function setAttribute(string $key, $value): self
@@ -201,6 +238,23 @@ abstract class Model implements JsonSerializable, ArrayAccess
      */
     public function __get($key)
     {
+        if (array_key_exists($key, $this->attributes)) {
+            return $this->getAttribute($key);
+        }
+
+        if ($this->relationLoaded($key)) {
+            return $this->relations[$key];
+        }
+
+        if (method_exists($this, $key)) {
+            $relation = $this->$key();
+            if ($relation instanceof Relation) {
+                $results = $relation->getResults();
+                $this->setRelation($key, $results);
+                return $results;
+            }
+        }
+
         return $this->getAttribute($key);
     }
 
@@ -258,6 +312,16 @@ abstract class Model implements JsonSerializable, ArrayAccess
         }
 
         if ($this->exists) {
+            if ($this->usesSoftDelete()) {
+                $time = date('Y-m-d H:i:s');
+                $deletedAt = static::DELETED_AT;
+                $this->setAttribute($deletedAt, $time);
+                return $this->query()
+                    ->withTrashed()
+                    ->where($this->primaryKey, $this->getAttribute($this->primaryKey))
+                    ->update([$deletedAt => $time]) > 0;
+            }
+
             return $this->query()->where($this->primaryKey, $this->getAttribute($this->primaryKey))->delete() > 0;
         }
 
@@ -265,11 +329,144 @@ abstract class Model implements JsonSerializable, ArrayAccess
     }
 
     /**
+     * 强制物理删除模型
+     */
+    public function forceDelete(): bool
+    {
+        if (is_null($this->getAttribute($this->primaryKey))) {
+            throw new \Exception('No primary key defined on model.');
+        }
+
+        if ($this->exists) {
+            return $this->query()
+                ->withTrashed()
+                ->where($this->primaryKey, $this->getAttribute($this->primaryKey))
+                ->delete() > 0;
+        }
+
+        return false;
+    }
+
+    /**
+     * 恢复被软删除的数据
+     */
+    public function restore(): bool
+    {
+        if (!$this->usesSoftDelete() || !$this->exists) {
+            return false;
+        }
+
+        $deletedAt = static::DELETED_AT;
+        $this->setAttribute($deletedAt, null);
+
+        return $this->query()
+            ->withTrashed()
+            ->where($this->primaryKey, $this->getAttribute($this->primaryKey))
+            ->update([$deletedAt => null]) > 0;
+    }
+
+    /**
+     * 判断当前模型是否已被软删除
+     */
+    public function trashed(): bool
+    {
+        if (!$this->usesSoftDelete()) {
+            return false;
+        }
+
+        return $this->getAttribute(static::DELETED_AT) !== null;
+    }
+
+    /**
+     * 定义一对一关系
+     */
+    protected function hasOne(string $related, ?string $foreignKey = null, ?string $localKey = null): HasOne
+    {
+        $foreignKey = $foreignKey ?: Str::snake($this->getBaseClassName()) . '_' . $this->primaryKey;
+        $localKey = $localKey ?: $this->primaryKey;
+
+        return new HasOne($this, $related, $foreignKey, $localKey);
+    }
+
+    /**
+     * 定义一对多关系
+     */
+    protected function hasMany(string $related, ?string $foreignKey = null, ?string $localKey = null): HasMany
+    {
+        $foreignKey = $foreignKey ?: Str::snake($this->getBaseClassName()) . '_' . $this->primaryKey;
+        $localKey = $localKey ?: $this->primaryKey;
+
+        return new HasMany($this, $related, $foreignKey, $localKey);
+    }
+
+    /**
+     * 定义反向关联
+     */
+    protected function belongsTo(string $related, ?string $foreignKey = null, ?string $ownerKey = null): BelongsTo
+    {
+        $ownerKey = $ownerKey ?: 'id';
+        $foreignKey = $foreignKey ?: Str::snake($this->guessRelationName()) . '_' . $ownerKey;
+
+        return new BelongsTo($this, $related, $foreignKey, $ownerKey);
+    }
+
+    /**
+     * 设置已加载的关系
+     */
+    public function setRelation(string $relation, mixed $value): self
+    {
+        $this->relations[$relation] = $value;
+        return $this;
+    }
+
+    /**
+     * 获取已加载关系
+     */
+    public function getRelation(string $relation): mixed
+    {
+        return $this->relations[$relation] ?? null;
+    }
+
+    /**
+     * 判断关系是否已加载
+     */
+    public function relationLoaded(string $relation): bool
+    {
+        return array_key_exists($relation, $this->relations);
+    }
+
+    /**
+     * 是否启用软删除
+     */
+    public function usesSoftDelete(): bool
+    {
+        return $this->softDelete;
+    }
+
+    /**
+     * 获取基础类名
+     */
+    protected function getBaseClassName(): string
+    {
+        $class = explode('\\', static::class);
+        return end($class);
+    }
+
+    /**
+     * 推断当前关系方法名
+     */
+    protected function guessRelationName(): string
+    {
+        $trace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 3);
+        return $trace[2]['function'] ?? $this->getBaseClassName();
+    }
+
+    /**
      * JSON 序列化实现
      */
     public function jsonSerialize(): mixed
     {
-        return $this->attributes;
+        return array_merge($this->attributes, $this->relations);
     }
 
     // --- ArrayAccess 接口实现 ---

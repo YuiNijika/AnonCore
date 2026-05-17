@@ -1,13 +1,13 @@
 <?php
 
-namespace Anon\Core\Console\Commands;
+namespace Anon\Core\Console\Commands\Server;
 
 use Anon\Core\Console\Command;
 
-class Run extends Command
+class Dev extends Command
 {
-    protected string $name = 'run';
-    protected string $description = 'Start the built-in PHP server in production mode';
+    protected string $name = 'dev';
+    protected string $description = 'Start the built-in PHP development server';
 
     public function execute(array $args): int
     {
@@ -23,11 +23,12 @@ class Run extends Command
             return 1;
         }
 
-        // 注入生产模式环境变量
-        putenv('APP_DEBUG=false');
-        putenv('APP_ENV=production');
+        // 注入开发模式环境变量
+        putenv('DEBUG_MODE=true');
+        putenv('APP_DEBUG=true');
+        putenv('APP_ENV=local');
 
-        $this->info("Anon Framework Next server started (PRODUCTION MODE):");
+        $this->info("Anon Framework Next development server started (DEV MODE):");
         $this->info("Listening on http://{$host}:{$port}");
         $this->info("Document root is {$docRoot}");
         $this->info("Press Ctrl-C to quit.");

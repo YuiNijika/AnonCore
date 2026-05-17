@@ -25,19 +25,26 @@ class Application
      */
     protected function registerDefaultCommands(): void
     {
-        $this->add(new Commands\Dev());
-        $this->add(new Commands\Run());
-        $this->add(new Commands\MakeController());
-        $this->add(new Commands\MakeModel());
-        $this->add(new Commands\MakeRequest());
-        $this->add(new Commands\MakeResource());
-        $this->add(new Commands\MakeMiddleware());
-        $this->add(new Commands\MakeMigration());
-        $this->add(new Commands\Migrate());
-        $this->add(new Commands\MakeSeeder());
-        $this->add(new Commands\DbSeed());
-        $this->add(new Commands\MakeJob());
-        $this->add(new Commands\QueueWork());
+        $this->add(new Commands\Server\Dev());
+        $this->add(new Commands\Server\Run());
+        $this->add(new Commands\Config\Cache());
+        $this->add(new Commands\Config\Clear());
+        $this->add(new Commands\Route\Cache());
+        $this->add(new Commands\Route\Clear());
+        $this->add(new Commands\Make\Controller());
+        $this->add(new Commands\Make\Model());
+        $this->add(new Commands\Make\Request());
+        $this->add(new Commands\Make\Resource());
+        $this->add(new Commands\Make\Middleware());
+        $this->add(new Commands\Make\Migration());
+        $this->add(new Commands\Db\Migrate());
+        $this->add(new Commands\Make\Seeder());
+        $this->add(new Commands\Db\Seed());
+        $this->add(new Commands\Make\Job());
+        $this->add(new Commands\Queue\Work());
+        $this->add(new Commands\Queue\Failed());
+        $this->add(new Commands\Queue\Retry());
+        $this->add(new Commands\Queue\ClearFailed());
     }
 
     /**

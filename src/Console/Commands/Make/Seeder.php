@@ -1,10 +1,10 @@
 <?php
 
-namespace Anon\Core\Console\Commands;
+namespace Anon\Core\Console\Commands\Make;
 
 use Anon\Core\Console\Command;
 
-class MakeSeeder extends Command
+class Seeder extends Command
 {
     protected string $name = 'make:seeder';
     protected string $description = 'Create a new database seeder class';

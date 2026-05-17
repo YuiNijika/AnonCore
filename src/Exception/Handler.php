@@ -3,6 +3,7 @@
 namespace Anon\Core\Exception;
 
 use Throwable;
+use Anon\Core\Facade\Config;
 use Anon\Core\Facade\Log;
 use Anon\Core\Facade\Env;
 use Anon\Core\Http\Response;
@@ -59,6 +60,10 @@ class Handler
      */
     protected function isDebug(): bool
     {
-        return defined('DEBUG_MODE') ? DEBUG_MODE : Env::get('DEBUG_MODE', false);
+        if (defined('DEBUG_MODE')) {
+            return (bool) DEBUG_MODE;
+        }
+
+        return (bool) Config::get('app.debug', Env::get('DEBUG_MODE', Env::get('APP_DEBUG', false)));
     }
 }

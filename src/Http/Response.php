@@ -19,6 +19,11 @@ class Response
      */
     protected array $headers;
 
+    /**
+     * @var array<int, array{name: string, value: string, options: array<string, mixed>}>
+     */
+    protected array $cookies = [];
+
     public function __construct(mixed $data = null, int $statusCode = 200, array $headers = [])
     {
         $this->data = $data;
@@ -101,6 +106,42 @@ class Response
     }
 
     /**
+     * 追加自定义 HTTP 头的别名方法
+     */
+    public function withHeader(string $name, string $value): self
+    {
+        return $this->setHeader($name, $value);
+    }
+
+    /**
+     * 设置 Cookie
+     *
+     * @param array<string, mixed> $options
+     */
+    public function setCookie(string $name, string $value, array $options = []): self
+    {
+        $this->cookies[] = [
+            'name' => $name,
+            'value' => $value,
+            'options' => $this->normalizeCookieOptions($options),
+        ];
+
+        return $this;
+    }
+
+    /**
+     * 删除 Cookie
+     *
+     * @param array<string, mixed> $options
+     */
+    public function deleteCookie(string $name, array $options = []): self
+    {
+        $options['expires'] = time() - 3600;
+
+        return $this->setCookie($name, '', $options);
+    }
+
+    /**
      * 发送HTTP响应
      */
     public function send(): void
@@ -118,6 +159,10 @@ class Response
             header("{$name}: {$value}");
         }
 
+        foreach ($this->cookies as $cookie) {
+            setcookie($cookie['name'], $cookie['value'], $cookie['options']);
+        }
+
         // 发送响应主体数据
         if (is_array($this->data) || is_object($this->data)) {
             echo json_encode($this->data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
@@ -128,5 +173,21 @@ class Response
         if (function_exists('fastcgi_finish_request')) {
             fastcgi_finish_request();
         }
+    }
+
+    /**
+     * @param array<string, mixed> $options
+     * @return array<string, mixed>
+     */
+    protected function normalizeCookieOptions(array $options): array
+    {
+        return [
+            'expires' => isset($options['expires']) ? (int) $options['expires'] : 0,
+            'path' => (string) ($options['path'] ?? '/'),
+            'domain' => (string) ($options['domain'] ?? ''),
+            'secure' => (bool) ($options['secure'] ?? false),
+            'httponly' => (bool) ($options['httponly'] ?? true),
+            'samesite' => (string) ($options['samesite'] ?? 'Lax'),
+        ];
     }
 }

@@ -1,10 +1,10 @@
 <?php
 
-namespace Anon\Core\Console\Commands;
+namespace Anon\Core\Console\Commands\Make;
 
 use Anon\Core\Console\Command;
 
-class MakeJob extends Command
+class Job extends Command
 {
     protected string $name = 'make:job';
     protected string $description = 'Create a new queue job class';

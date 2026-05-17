@@ -57,6 +57,17 @@ class Router
     }
 
     /**
+     * 注册一个PATCH路由
+     * @param string $uri 路由路径
+     * @param callable|array|string $action 闭包函数或控制器动作
+     * @return RouteItem
+     */
+    public function patch(string $uri, mixed $action): RouteItem
+    {
+        return $this->addRoute('PATCH', $uri, $action);
+    }
+
+    /**
      * 注册一个DELETE路由
      * @param string $uri 路由路径
      * @param callable|array|string $action 闭包函数或控制器动作
@@ -78,6 +89,49 @@ class Router
         foreach ($methods as $method) {
             $this->addRoute($method, $uri, $action);
         }
+    }
+
+    /**
+     * 注册一组常用资源路由
+     *
+     * GET    /resource         -> index
+     * GET    /resource/{id}    -> show
+     * POST   /resource         -> store
+     * PUT    /resource/{id}    -> update
+     * PATCH  /resource/{id}    -> update
+     * DELETE /resource/{id}    -> delete
+     *
+     * @return RouteItem[]
+     */
+    public function resource(string $uri, mixed $controller, array $options = []): array
+    {
+        $uri = '/' . trim($uri, '/');
+        $param = $this->resolveResourceParam($options);
+        $detailUri = rtrim($uri, '/') . '/{' . $param . '}';
+        $allowedActions = $this->resolveResourceActions($options);
+
+        $definitions = [
+            ['action' => 'index', 'method' => 'get', 'uri' => $uri],
+            ['action' => 'show', 'method' => 'get', 'uri' => $detailUri],
+            ['action' => 'store', 'method' => 'post', 'uri' => $uri],
+            ['action' => 'update', 'method' => 'put', 'uri' => $detailUri],
+            ['action' => 'update', 'method' => 'patch', 'uri' => $detailUri],
+            ['action' => 'delete', 'method' => 'delete', 'uri' => $detailUri],
+        ];
+
+        $routes = [];
+        foreach ($definitions as $definition) {
+            if (!in_array($definition['action'], $allowedActions, true)) {
+                continue;
+            }
+
+            $routes[] = $this->{$definition['method']}(
+                $definition['uri'],
+                $this->buildControllerAction($controller, $definition['action'])
+            );
+        }
+
+        return $routes;
     }
 
     /**
@@ -106,6 +160,63 @@ class Router
     protected array $globalMiddlewares = [];
 
     /**
+     * 导出可缓存的路由定义
+     *
+     * @return array<string, mixed>
+     */
+    public function exportForCache(): array
+    {
+        $routes = [];
+
+        foreach ($this->routes as $method => $items) {
+            foreach ($items as $uri => $routeItem) {
+                $routes[] = [
+                    'method' => $method,
+                    'uri' => $uri,
+                    'pattern' => $routeItem->pattern,
+                    'action' => $this->normalizeActionForCache($routeItem->action, $method, $uri),
+                    'middlewares' => $routeItem->middlewares,
+                ];
+            }
+        }
+
+        return [
+            'routes' => $routes,
+            'global_middlewares' => $this->globalMiddlewares,
+        ];
+    }
+
+    /**
+     * 从缓存载入路由定义
+     *
+     * @param array<string, mixed> $payload
+     */
+    public function loadCachedRoutes(array $payload): void
+    {
+        $this->routes = [];
+        $this->globalMiddlewares = is_array($payload['global_middlewares'] ?? null)
+            ? $payload['global_middlewares']
+            : [];
+
+        foreach (($payload['routes'] ?? []) as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+
+            $routeItem = new RouteItem(
+                (string) ($item['method'] ?? 'GET'),
+                (string) ($item['uri'] ?? '/'),
+                $this->restoreActionFromCache($item['action'] ?? null)
+            );
+
+            $routeItem->pattern = isset($item['pattern']) ? (string) $item['pattern'] : null;
+            $routeItem->middlewares = is_array($item['middlewares'] ?? null) ? $item['middlewares'] : [];
+
+            $this->routes[$routeItem->method][$routeItem->uri] = $routeItem;
+        }
+    }
+
+    /**
      * 注册全局中间件
      * @param array|string $middleware
      * @return $this
@@ -117,6 +228,42 @@ class Router
         }
         $this->globalMiddlewares = array_merge($this->globalMiddlewares, $middleware);
         return $this;
+    }
+
+    /**
+     * 规范化动作用于缓存
+     */
+    protected function normalizeActionForCache(mixed $action, string $method, string $uri): array|string
+    {
+        if ($action instanceof \Closure) {
+            throw new \RuntimeException("Unable to cache route [{$method} {$uri}] because closure actions are not supported.");
+        }
+
+        if (is_string($action)) {
+            return $action;
+        }
+
+        if (is_array($action) && count($action) === 2) {
+            return [$action[0], $action[1]];
+        }
+
+        throw new \RuntimeException("Unable to cache route [{$method} {$uri}] because action type is not cacheable.");
+    }
+
+    /**
+     * 还原缓存中的动作
+     */
+    protected function restoreActionFromCache(mixed $action): mixed
+    {
+        if (is_string($action)) {
+            return $action;
+        }
+
+        if (is_array($action) && count($action) === 2) {
+            return [$action[0], $action[1]];
+        }
+
+        throw new \RuntimeException('Invalid cached route action.');
     }
 
     /**
@@ -229,6 +376,95 @@ class Router
         $this->lastRouteItems[] = $routeItem;
         
         return $routeItem;
+    }
+
+    /**
+     * 将资源控制器定义转换为具体动作
+     */
+    protected function buildControllerAction(mixed $controller, string $method): mixed
+    {
+        if (is_array($controller) && count($controller) === 2) {
+            return [$controller[0], $method];
+        }
+
+        if (is_string($controller)) {
+            $controller = trim($controller);
+            if (str_contains($controller, '@')) {
+                [$controller] = explode('@', $controller, 2);
+            }
+
+            if (class_exists($controller) || str_starts_with($controller, 'Anon\\Controller\\')) {
+                return [$controller, $method];
+            }
+
+            return $controller . '@' . $method;
+        }
+
+        return [$controller, $method];
+    }
+
+    /**
+     * 解析资源路由的参数名
+     */
+    protected function resolveResourceParam(array $options): string
+    {
+        $param = (string) ($options['param'] ?? 'id');
+
+        if ($param === '' || !preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $param)) {
+            return 'id';
+        }
+
+        return $param;
+    }
+
+    /**
+     * 解析资源路由允许的动作列表
+     *
+     * @return string[]
+     */
+    protected function resolveResourceActions(array $options): array
+    {
+        $available = ['index', 'show', 'store', 'update', 'delete'];
+        $only = $this->normalizeResourceActionList($options['only'] ?? null);
+        $except = $this->normalizeResourceActionList($options['except'] ?? null);
+
+        if ($only !== []) {
+            return array_values(array_intersect($available, $only));
+        }
+
+        if ($except !== []) {
+            return array_values(array_diff($available, $except));
+        }
+
+        return $available;
+    }
+
+    /**
+     * 规范化 only/except 动作列表
+     *
+     * @return string[]
+     */
+    protected function normalizeResourceActionList(mixed $actions): array
+    {
+        if (is_string($actions)) {
+            $actions = explode(',', $actions);
+        }
+
+        if (!is_array($actions)) {
+            return [];
+        }
+
+        $available = ['index', 'show', 'store', 'update', 'delete'];
+        $normalized = [];
+
+        foreach ($actions as $action) {
+            $action = strtolower(trim((string) $action));
+            if ($action !== '' && in_array($action, $available, true)) {
+                $normalized[] = $action;
+            }
+        }
+
+        return array_values(array_unique($normalized));
     }
 
     /**
@@ -416,7 +652,10 @@ class Router
         // 如果是字符串形式的控制器调用
         else if (is_string($action) && str_contains($action, '@')) {
             [$class, $method] = explode('@', $action);
-            $class = "Anon\\Controller\\" . ltrim($class, '\\');
+            $class = str_replace(['/', '\\'], '\\', trim($class));
+            if (!str_starts_with($class, 'Anon\\Controller\\')) {
+                $class = 'Anon\\Controller\\' . ltrim($class, '\\');
+            }
             if (class_exists($class)) {
                 $controller = $app->make($class);
                 if (method_exists($controller, $method)) {

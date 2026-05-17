@@ -2,7 +2,9 @@
 
 namespace Anon\Core\Log;
 
-class Logger
+use Anon\Core\Facade\Config;
+
+class Manager
 {
     /**
      * @var string 日志基础目录
@@ -31,9 +33,12 @@ class Logger
 
     public function __construct(string $logPath = '')
     {
-        $this->logPath = $logPath ?: (defined('RUNTIME_PATH') ? RUNTIME_PATH . '/log' : __DIR__ . '/../../runtime/log');
+        $defaultPath = defined('RUNTIME_PATH') ? RUNTIME_PATH . '/log' : __DIR__ . '/../../runtime/log';
+        $this->logPath = $logPath ?: (string) Config::get('log.path', $defaultPath);
         $this->ensureDirectoryExists($this->logPath);
-        $this->isDebug = defined('APP_DEBUG') ? (bool) APP_DEBUG : (isset($_ENV['APP_DEBUG']) ? (bool) $_ENV['APP_DEBUG'] : false);
+        $this->isDebug = defined('DEBUG_MODE')
+            ? (bool) DEBUG_MODE
+            : (bool) Config::get('app.debug', ($_ENV['DEBUG_MODE'] ?? $_ENV['APP_DEBUG'] ?? false));
     }
 
     /**

@@ -4,6 +4,7 @@ namespace Anon\Core\Cache;
 
 use Redis as PhpRedis;
 use Exception;
+use Anon\Core\Facade\Config;
 use Anon\Core\Facade\Env;
 
 class Redis implements Contract
@@ -24,11 +25,16 @@ class Redis implements Contract
             throw new Exception("The 'redis' extension is required to use Redis cache.");
         }
 
-        $host = Env::get('REDIS_HOST', '127.0.0.1');
-        $port = Env::get('REDIS_PORT', 6379);
-        $password = Env::get('REDIS_PASSWORD', '');
-        $database = Env::get('REDIS_DB', 0);
-        $this->prefix = Env::get('REDIS_PREFIX', 'anon:cache:');
+        $redisConfig = Config::get('cache.redis', Config::get('redis', []));
+        $cacheConfig = Config::get('cache', []);
+
+        $host = is_array($redisConfig) ? ($redisConfig['host'] ?? Env::get('REDIS_HOST', '127.0.0.1')) : Env::get('REDIS_HOST', '127.0.0.1');
+        $port = is_array($redisConfig) ? ($redisConfig['port'] ?? Env::get('REDIS_PORT', 6379)) : Env::get('REDIS_PORT', 6379);
+        $password = is_array($redisConfig) ? ($redisConfig['password'] ?? Env::get('REDIS_PASSWORD', '')) : Env::get('REDIS_PASSWORD', '');
+        $database = is_array($redisConfig) ? ($redisConfig['database'] ?? Env::get('REDIS_DB', 0)) : Env::get('REDIS_DB', 0);
+        $this->prefix = is_array($cacheConfig)
+            ? ($cacheConfig['prefix'] ?? Env::get('CACHE_PREFIX', Env::get('REDIS_PREFIX', 'anon:cache:')))
+            : Env::get('CACHE_PREFIX', Env::get('REDIS_PREFIX', 'anon:cache:'));
 
         $this->redis = new PhpRedis();
         $this->redis->connect($host, $port);

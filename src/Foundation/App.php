@@ -8,13 +8,14 @@ use Anon\Core\Http\Response;
 use Anon\Core\Facade\Route;
 use Anon\Core\Facade\Log;
 use Anon\Core\Facade\Env;
+use Anon\Core\Facade\Config;
 use Anon\Core\Facade\Hook;
 use Anon\Core\Container\Container;
 
 class App extends Container
 {
     /**
-     * @var string 框架版本号
+     * @var string 框架版本
      */
     public const VERSION = 'v4.0.0-next';
 
@@ -72,13 +73,16 @@ class App extends Container
         // 注册核心组件到容器
         $this->registerCoreContainerAliases();
 
-        // 加载环境变量
-        Env::load($this->basePath . DIRECTORY_SEPARATOR . '.env');
+        // 按 Vite 风格加载环境变量
+        $this->loadEnvironmentFiles();
+
+        // 加载结构化配置
+        $this->loadConfiguration();
 
         // 定义常量
         $this->defineConstants();
 
-        // 注册全局异常和错误处理接管
+        // 注册全局异常和错误处理接口
         set_exception_handler([$this, 'handleException']);
         set_error_handler([$this, 'handleError']);
 
@@ -94,22 +98,64 @@ class App extends Container
     }
 
     /**
+     * 加载环境变量文件
+     *
+     * 支持：
+     * - .env
+     * - .env.local
+     * - .env.{APP_ENV}
+     * - .env.{APP_ENV}.local
+     */
+    protected function loadEnvironmentFiles(): void
+    {
+        $envPath = $this->basePath . DIRECTORY_SEPARATOR;
+
+        Env::load($envPath . '.env');
+        Env::load($envPath . '.env.local');
+
+        $mode = (string) Env::get('APP_ENV', 'production');
+        if ($mode !== '') {
+            Env::load($envPath . '.env.' . $mode);
+            Env::load($envPath . '.env.' . $mode . '.local');
+        }
+    }
+
+    /**
+     * 加载配置，优先使用配置缓存
+     */
+    protected function loadConfiguration(): void
+    {
+        $configCache = $this->getCacheFile('config.php');
+
+        if (!$this->cacheDisabled('ANON_DISABLE_CONFIG_CACHE') && file_exists($configCache)) {
+            $config = require $configCache;
+            if (is_array($config)) {
+                Config::replace($config);
+                return;
+            }
+        }
+
+        Config::load($this->basePath . DIRECTORY_SEPARATOR . 'anon.config.php');
+    }
+
+    /**
      * 注册核心组件到容器的别名
      */
     protected function registerCoreContainerAliases(): void
     {
         $this->bind('router', \Anon\Core\Routing\Router::class);
         $this->bind('db', \Anon\Core\Database\Connection::class);
-        $this->bind('log', \Anon\Core\Log\Logger::class);
+        $this->bind('log', \Anon\Core\Log\Manager::class);
         $this->bind('env', \Anon\Core\Support\Env::class);
+        $this->bind('config', \Anon\Core\Support\Config::class);
         $this->bind('cache', \Anon\Core\Cache\Manager::class);
         $this->bind('session', \Anon\Core\Session\Manager::class);
         $this->bind('validator', \Anon\Core\Validation\Factory::class);
         $this->bind('event', \Anon\Core\Event\Dispatcher::class);
-        $this->bind('auth', \Anon\Core\Auth\AuthManager::class);
+        $this->bind('auth', \Anon\Core\Auth\Manager::class);
         $this->bind('storage', \Anon\Core\Storage\Manager::class);
         $this->bind('http', \Anon\Core\Http\Client::class);
-        $this->bind('queue', \Anon\Core\Queue\QueueManager::class);
+        $this->bind('queue', \Anon\Core\Queue\Manager::class);
     }
 
     /**
@@ -117,14 +163,33 @@ class App extends Container
      */
     protected function defineConstants(): void
     {
-        define('BASE_PATH', $this->basePath);
-        define('APP_PATH', $this->basePath . DIRECTORY_SEPARATOR . 'app');
-        define('RUNTIME_PATH', $this->basePath . DIRECTORY_SEPARATOR . 'runtime');
+        if (!defined('BASE_PATH')) {
+            define('BASE_PATH', $this->basePath);
+        }
+        if (!defined('APP_PATH')) {
+            define('APP_PATH', $this->basePath . DIRECTORY_SEPARATOR . 'app');
+        }
+        if (!defined('RUNTIME_PATH')) {
+            define('RUNTIME_PATH', $this->basePath . DIRECTORY_SEPARATOR . 'runtime');
+        }
         
         // 常用环境变量相关的常量封装
-        define('APP_NAME', Env::get('APP_NAME', self::NAME));
-        define('APP_ENV', Env::get('APP_ENV', 'production'));
-        define('DEBUG_MODE', Env::get('DEBUG_MODE', false));
+        $appName = Config::get('app.name', Env::get('APP_NAME', self::NAME));
+        $appEnv = Config::get('app.env', Env::get('APP_ENV', 'production'));
+        $debugMode = Config::get('app.debug', Env::get('DEBUG_MODE', Env::get('APP_DEBUG', false)));
+
+        if (!defined('APP_NAME')) {
+            define('APP_NAME', $appName);
+        }
+        if (!defined('APP_ENV')) {
+            define('APP_ENV', $appEnv);
+        }
+        if (!defined('DEBUG_MODE')) {
+            define('DEBUG_MODE', $debugMode);
+        }
+        if (!defined('APP_DEBUG')) {
+            define('APP_DEBUG', $debugMode);
+        }
 
         // 自动获取 APP_URL
         $defaultUrl = '';
@@ -132,7 +197,9 @@ class App extends Container
             $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' || isset($_SERVER['SERVER_PORT']) && $_SERVER['SERVER_PORT'] == 443) ? "https://" : "http://";
             $defaultUrl = $protocol . $_SERVER['HTTP_HOST'];
         }
-        define('APP_URL', Env::get('APP_URL', $defaultUrl));
+        if (!defined('APP_URL')) {
+            define('APP_URL', Config::get('app.url', Env::get('APP_URL', $defaultUrl)));
+        }
     }
 
     /**
@@ -178,9 +245,9 @@ class App extends Container
     {
         // 记录错误日志，将上下文合并到消息中
         $errorMsg = $e->getMessage() . "\n" . json_encode([
-            'file'  => $e->getFile(),
-            'line'  => $e->getLine(),
-            'trace' => $e->getTraceAsString()
+            'file' => $e->getFile(),
+            'line' => $e->getLine(),
+            'trace' => $e->getTraceAsString(),
         ]);
         Log::error($errorMsg, 'exception');
 
@@ -194,12 +261,12 @@ class App extends Container
             $data = $e->getData();
         } else {
             // 在非调试模式下，隐藏真实错误信息
-            if (!Env::get('DEBUG_MODE', false)) {
+            if (!Config::get('app.debug', Env::get('DEBUG_MODE', Env::get('APP_DEBUG', false)))) {
                 $message = 'Internal Server Error';
             } else {
                 $data = [
-                    'file'  => $e->getFile(),
-                    'line'  => $e->getLine(),
+                    'file' => $e->getFile(),
+                    'line' => $e->getLine(),
                     'trace' => $e->getTrace(),
                 ];
             }
@@ -207,9 +274,9 @@ class App extends Container
 
         // 返回 JSON 格式错误
         $response = Response::json([
-            'code'    => $code,
+            'code' => $code,
             'message' => $message,
-            'data'    => $data
+            'data' => $data,
         ], $code);
 
         $response->send();
@@ -234,6 +301,17 @@ class App extends Container
      */
     protected function loadRoutes(): void
     {
+        $routeCache = $this->getCacheFile('routes.php');
+        if (!$this->cacheDisabled('ANON_DISABLE_ROUTE_CACHE') && file_exists($routeCache)) {
+            $payload = require $routeCache;
+            if (is_array($payload)) {
+                /** @var \Anon\Core\Routing\Router $router */
+                $router = $this->make('router');
+                $router->loadCachedRoutes($payload);
+                return;
+            }
+        }
+
         $routePath = APP_PATH . DIRECTORY_SEPARATOR . 'route';
         if (is_dir($routePath)) {
             $files = glob($routePath . DIRECTORY_SEPARATOR . '*.php');
@@ -243,5 +321,21 @@ class App extends Container
                 }
             }
         }
+    }
+
+    /**
+     * 获取缓存文件路径
+     */
+    protected function getCacheFile(string $fileName): string
+    {
+        return $this->basePath . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'cache' . DIRECTORY_SEPARATOR . $fileName;
+    }
+
+    /**
+     * 判断是否禁用某类缓存
+     */
+    protected function cacheDisabled(string $key): bool
+    {
+        return (bool) Env::get($key, false);
     }
 }

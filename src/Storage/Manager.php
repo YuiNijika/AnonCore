@@ -3,6 +3,7 @@
 namespace Anon\Core\Storage;
 
 use Exception;
+use Anon\Core\Facade\Config;
 use Anon\Core\Facade\Env;
 
 class Manager implements Contract
@@ -19,7 +20,7 @@ class Manager implements Contract
 
     public function __construct()
     {
-        $this->defaultDisk = Env::get('STORAGE_DISK', 'local');
+        $this->defaultDisk = (string) Config::get('storage.default', Env::get('STORAGE_DISK', 'local'));
     }
 
     /**

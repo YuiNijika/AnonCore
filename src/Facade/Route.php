@@ -7,8 +7,10 @@ namespace Anon\Core\Facade;
  * @method static \Anon\Core\Routing\RouteItem get(string $uri, mixed $action)
  * @method static \Anon\Core\Routing\RouteItem post(string $uri, mixed $action)
  * @method static \Anon\Core\Routing\RouteItem put(string $uri, mixed $action)
+ * @method static \Anon\Core\Routing\RouteItem patch(string $uri, mixed $action)
  * @method static \Anon\Core\Routing\RouteItem delete(string $uri, mixed $action)
  * @method static void any(string $uri, mixed $action)
+ * @method static array resource(string $uri, mixed $controller, array $options = [])
  * @method static \Anon\Core\Routing\Router group(string $prefix, callable $callback)
  * @method static \Anon\Core\Http\Response dispatch(\Anon\Core\Http\Request $request)
  */

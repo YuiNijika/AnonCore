@@ -2,6 +2,7 @@
 
 namespace Anon\Core\Session;
 
+use Anon\Core\Facade\Config;
 use Anon\Core\Facade\Env;
 
 class Manager implements Contract
@@ -25,21 +26,21 @@ class Manager implements Contract
             return;
         }
 
-        $driver = Env::get('SESSION_DRIVER', 'file');
+        $driver = (string) Config::get('session.driver', Env::get('SESSION_DRIVER', 'file'));
 
         // 注册自定义会话处理器
         $handler = $driver === 'redis' ? new Redis() : new File();
         session_set_save_handler($handler, true);
 
         // 设置 Cookie 参数
-        $lifetime = Env::get('SESSION_LIFETIME', 86400);
+        $lifetime = (int) Config::get('session.lifetime', Env::get('SESSION_LIFETIME', 86400));
         session_set_cookie_params([
             'lifetime' => $lifetime,
-            'path'     => '/',
-            'domain'   => Env::get('SESSION_DOMAIN', ''),
-            'secure'   => Env::get('SESSION_SECURE', false),
-            'httponly' => Env::get('SESSION_HTTPONLY', true), // HttpOnly 默认应为 true 防止 XSS
-            'samesite' => Env::get('SESSION_SAMESITE', 'Lax'), // 必须是 Lax, Strict, 或 None
+            'path'     => (string) Config::get('session.path', '/'),
+            'domain'   => (string) Config::get('session.domain', Env::get('SESSION_DOMAIN', '')),
+            'secure'   => (bool) Config::get('session.secure', Env::get('SESSION_SECURE', false)),
+            'httponly' => (bool) Config::get('session.httponly', Env::get('SESSION_HTTPONLY', true)),
+            'samesite' => (string) Config::get('session.samesite', Env::get('SESSION_SAMESITE', 'Lax')),
         ]);
 
         session_start();

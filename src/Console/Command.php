@@ -2,6 +2,8 @@
 
 namespace Anon\Core\Console;
 
+use Anon\Core\Foundation\App;
+
 abstract class Command
 {
     /**
@@ -80,5 +82,62 @@ abstract class Command
             }
         }
         return $default;
+    }
+
+    /**
+     * 获取项目根目录
+     */
+    protected function projectRoot(): string
+    {
+        return getcwd() ?: '.';
+    }
+
+    /**
+     * 获取 runtime 目录
+     */
+    protected function runtimePath(): string
+    {
+        return $this->projectRoot() . DIRECTORY_SEPARATOR . 'runtime';
+    }
+
+    /**
+     * 获取缓存目录
+     */
+    protected function cachePath(): string
+    {
+        return $this->runtimePath() . DIRECTORY_SEPARATOR . 'cache';
+    }
+
+    /**
+     * 确保目录存在
+     */
+    protected function ensureDirectory(string $path): void
+    {
+        if (!is_dir($path)) {
+            mkdir($path, 0755, true);
+        }
+    }
+
+    /**
+     * 在控制台环境中引导应用，便于复用配置、路由和容器能力
+     *
+     * @param array<string, scalar|null> $environment
+     */
+    protected function bootstrapApp(array $environment = []): App
+    {
+        foreach ($environment as $key => $value) {
+            if ($value === null) {
+                putenv($key);
+                unset($_ENV[$key], $_SERVER[$key]);
+                continue;
+            }
+
+            $normalized = is_bool($value) ? ($value ? '1' : '0') : (string) $value;
+            putenv($key . '=' . $normalized);
+            $_ENV[$key] = $normalized;
+            $_SERVER[$key] = $normalized;
+        }
+
+        return new App($this->projectRoot());
     }
 }

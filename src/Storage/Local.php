@@ -2,7 +2,7 @@
 
 namespace Anon\Core\Storage;
 
-use Anon\Core\Facade\Env;
+use Anon\Core\Facade\Config;
 
 class Local implements Contract
 {
@@ -11,9 +11,8 @@ class Local implements Contract
 
     public function __construct()
     {
-        // 使用框架全局常量
-        $this->root = RUNTIME_PATH . '/storage';
-        $this->url = APP_URL . '/storage';
+        $this->root = (string) Config::get('storage.disks.local.root', RUNTIME_PATH . '/storage');
+        $this->url = (string) Config::get('storage.disks.local.url', APP_URL . '/storage');
         
         if (!is_dir($this->root)) {
             mkdir($this->root, 0755, true);

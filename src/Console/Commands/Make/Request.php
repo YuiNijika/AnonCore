@@ -1,10 +1,10 @@
 <?php
 
-namespace Anon\Core\Console\Commands;
+namespace Anon\Core\Console\Commands\Make;
 
 use Anon\Core\Console\Command;
 
-class MakeRequest extends Command
+class Request extends Command
 {
     protected string $name = 'make:request';
     protected string $description = 'Create a new form request class';

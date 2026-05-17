@@ -10,6 +10,11 @@ class Env
     protected array $data = [];
 
     /**
+     * @var array<string, bool> 记录外部注入且不应被 .env 覆盖的变量
+     */
+    protected array $protectedKeys = [];
+
+    /**
      * 加载并解析 .env 文件
      * @param string $file .env 文件绝对路径
      */
@@ -28,9 +33,15 @@ class Env
         foreach ($envData as $key => $value) {
             if (is_array($value)) {
                 foreach ($value as $subKey => $subValue) {
+                    if ($this->shouldKeepSystemValue($subKey)) {
+                        continue;
+                    }
                     $this->set($subKey, $subValue);
                 }
             } else {
+                if ($this->shouldKeepSystemValue($key)) {
+                    continue;
+                }
                 $this->set($key, $value);
             }
         }
@@ -86,5 +97,23 @@ class Env
             if ($lowerValue === 'null') return null;
         }
         return $value;
+    }
+
+    /**
+     * 外部注入的环境变量优先级更高，不被 .env 文件覆盖。
+     */
+    protected function shouldKeepSystemValue(string $key): bool
+    {
+        if (isset($this->protectedKeys[$key])) {
+            return true;
+        }
+
+        $systemValue = getenv($key);
+        if (!array_key_exists($key, $this->data) && ($systemValue !== false || array_key_exists($key, $_ENV))) {
+            $this->protectedKeys[$key] = true;
+            return true;
+        }
+
+        return false;
     }
 }

@@ -1,10 +1,10 @@
 <?php
 
-namespace Anon\Core\Console\Commands;
+namespace Anon\Core\Console\Commands\Make;
 
 use Anon\Core\Console\Command;
 
-class MakeResource extends Command
+class Resource extends Command
 {
     protected string $name = 'make:resource';
     protected string $description = 'Create a new API resource class';

@@ -3,6 +3,7 @@
 namespace Anon\Core\Session;
 
 use SessionHandlerInterface;
+use Anon\Core\Facade\Config;
 
 class File implements SessionHandlerInterface
 {
@@ -13,7 +14,8 @@ class File implements SessionHandlerInterface
 
     public function __construct()
     {
-        $this->path = defined('RUNTIME_PATH') ? RUNTIME_PATH . '/session' : sys_get_temp_dir() . '/anon_session';
+        $defaultPath = defined('RUNTIME_PATH') ? RUNTIME_PATH . '/session' : sys_get_temp_dir() . '/anon_session';
+        $this->path = (string) Config::get('session.path_storage', $defaultPath);
         if (!is_dir($this->path)) {
             mkdir($this->path, 0755, true);
         }

@@ -4,6 +4,7 @@ namespace Anon\Core\Database;
 
 use PDO;
 use PDOException;
+use Anon\Core\Facade\Config;
 use Anon\Core\Facade\Env;
 
 class Connection
@@ -21,7 +22,7 @@ class Connection
 
     public function __construct(array $config = [])
     {
-        $this->config = array_merge([
+        $defaults = [
             'type' => Env::get('DATABASE_TYPE', 'mysql'),
             'host' => Env::get('DATABASE_URL', '127.0.0.1'),
             'port' => Env::get('DATABASE_PORT', 3306),
@@ -30,7 +31,10 @@ class Connection
             'password' => Env::get('DATABASE_PASSWORD', ''),
             'charset' => Env::get('DATABASE_CHARSET', 'utf8mb4'),
             'prefix' => Env::get('DATABASE_PREFIX', ''),
-        ], $config);
+        ];
+
+        $configured = Config::get('database', []);
+        $this->config = array_merge($defaults, is_array($configured) ? $configured : [], $config);
     }
 
     /**

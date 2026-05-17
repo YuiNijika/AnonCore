@@ -2,6 +2,8 @@
 
 namespace Anon\Core\Cache;
 
+use Anon\Core\Facade\Config;
+
 class File implements Contract
 {
     /**
@@ -11,7 +13,7 @@ class File implements Contract
 
     public function __construct()
     {
-        $this->cachePath = RUNTIME_PATH . '/cache';
+        $this->cachePath = (string) Config::get('cache.path', RUNTIME_PATH . '/cache');
         if (!is_dir($this->cachePath)) {
             mkdir($this->cachePath, 0755, true);
         }
