@@ -7,6 +7,7 @@ use Throwable;
 use Redis as PhpRedis;
 use Anon\Core\Facade\Config;
 use Anon\Core\Facade\Env;
+use Anon\Core\Facade\Hook;
 
 class Manager
 {
@@ -54,6 +55,8 @@ class Manager
 
         $queue = $queue ?? $this->defaultQueue;
         $payload = $this->createPayload($job, $queue, $maxTries);
+        
+        Hook::trigger('queue_push', ['job' => $job, 'queue' => $queue, 'delay' => $delay, 'payload' => $payload]);
 
         if ($delay > 0) {
             return $this->redis->zAdd(

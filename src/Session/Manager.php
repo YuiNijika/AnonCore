@@ -28,6 +28,11 @@ class Manager implements Contract
 
         $driver = (string) Config::get('session.driver', Env::get('SESSION_DRIVER', 'file'));
 
+        // 强化 Session 安全配置
+        ini_set('session.use_strict_mode', 1);
+        ini_set('session.use_only_cookies', 1);
+        ini_set('session.cookie_httponly', 1);
+
         // 注册自定义会话处理器
         $handler = $driver === 'redis' ? new Redis() : new File();
         session_set_save_handler($handler, true);

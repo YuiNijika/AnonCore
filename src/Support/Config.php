@@ -10,6 +10,17 @@ class Config
     protected array $items = [];
 
     /**
+     * 定义配置项
+     *
+     * @param array<string, mixed> $config
+     * @return array<string, mixed>
+     */
+    public static function define(array $config): array
+    {
+        return $config;
+    }
+
+    /**
      * 加载项目根目录下的 anon.config.php
      */
     public function load(string $file): void

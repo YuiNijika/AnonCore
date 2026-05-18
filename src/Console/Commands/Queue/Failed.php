@@ -31,27 +31,32 @@ class Failed extends Command
             }
 
             $this->info("Failed jobs on queue [{$queueName}] (showing " . count($items) . " of {$total}):");
+            echo PHP_EOL;
+
+            $headers = ['ID', 'Job Class', 'Attempts', 'Failed At', 'Last Error'];
+            $rows = [];
 
             foreach ($items as $payload) {
                 $jobClass = $this->resolveJobClass($payload);
                 $failedAt = isset($payload['failed_at']) ? date('Y-m-d H:i:s', (int) $payload['failed_at']) : '-';
                 $attempts = (int) ($payload['attempts'] ?? 0);
                 $maxTries = (int) ($payload['max_tries'] ?? 0);
-                $message = sprintf(
-                    '%s | %s | attempts %d/%d | failed_at %s',
+                $lastError = (string) ($payload['last_error'] ?? '-');
+                // 截断过长的错误信息
+                if (mb_strlen($lastError) > 50) {
+                    $lastError = mb_substr($lastError, 0, 47) . '...';
+                }
+
+                $rows[] = [
                     (string) ($payload['id'] ?? '-'),
                     $jobClass,
-                    $attempts,
-                    $maxTries,
-                    $failedAt
-                );
-
-                $this->info($message);
-
-                if (!empty($payload['last_error'])) {
-                    $this->warning('  last_error: ' . (string) $payload['last_error']);
-                }
+                    "{$attempts}/{$maxTries}",
+                    $failedAt,
+                    $lastError
+                ];
             }
+
+            $this->table($headers, $rows);
 
             return 0;
         } catch (\Throwable $e) {

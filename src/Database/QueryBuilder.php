@@ -25,9 +25,33 @@ class QueryBuilder
     protected string $limit = '';
     protected string $groupBy = '';
 
+    /**
+     * @var array 允许的操作符
+     */
+    protected array $allowedOperators = [
+        '=', '<', '>', '<=', '>=', '<>', '!=', '<=>',
+        'like', 'like binary', 'not like', 'ilike',
+        '&', '|', '^', '<<', '>>',
+        'rlike', 'not rlike', 'regexp', 'not regexp',
+        '~', '~*', '!~', '!~*', 'similar to',
+        'not similar to', 'not ilike', '~~*', '!~~*'
+    ];
+
     public function __construct(Connection $connection)
     {
         $this->connection = $connection;
+    }
+
+    /**
+     * 验证操作符是否合法，防止 SQL 注入
+     */
+    protected function validateOperator(string $operator): string
+    {
+        $operator = strtolower(trim($operator));
+        if (!in_array($operator, $this->allowedOperators, true)) {
+            throw new \InvalidArgumentException("Illegal operator [{$operator}] and could cause SQL injection.");
+        }
+        return strtoupper($operator);
     }
 
     /**
@@ -74,6 +98,8 @@ class QueryBuilder
         if (func_num_args() === 2) {
             $value = $operator;
             $operator = '=';
+        } else {
+            $operator = $this->validateOperator((string) $operator);
         }
 
         $column = $this->wrap($column);
@@ -167,6 +193,12 @@ class QueryBuilder
      */
     public function join(string $table, string $first, string $operator, string $second, string $type = 'INNER'): self
     {
+        $table = $this->wrap($table);
+        $first = $this->wrap($first);
+        $second = $this->wrap($second);
+        $operator = $this->validateOperator($operator);
+        $type = strtoupper($type);
+
         $this->joins[] = "{$type} JOIN {$table} ON {$first} {$operator} {$second}";
         return $this;
     }
@@ -184,7 +216,11 @@ class QueryBuilder
      */
     public function groupBy(string|array $columns): self
     {
-        $columns = is_array($columns) ? implode(', ', $columns) : $columns;
+        if (is_array($columns)) {
+            $columns = implode(', ', array_map([$this, 'wrap'], $columns));
+        } else {
+            $columns = $this->wrap($columns);
+        }
         $this->groupBy = "GROUP BY {$columns}";
         return $this;
     }
@@ -197,7 +233,9 @@ class QueryBuilder
      */
     public function orderBy(string $column, string $direction = 'asc'): self
     {
-        $this->orderBy = "ORDER BY {$column} " . strtoupper($direction);
+        $direction = strtolower($direction) === 'desc' ? 'DESC' : 'ASC';
+        $column = $this->wrap($column);
+        $this->orderBy = "ORDER BY {$column} {$direction}";
         return $this;
     }
 

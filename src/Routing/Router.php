@@ -160,6 +160,16 @@ class Router
     protected array $globalMiddlewares = [];
 
     /**
+     * 获取所有注册的路由集合
+     *
+     * @return RouteItem[][]
+     */
+    public function getRoutes(): array
+    {
+        return $this->routes;
+    }
+
+    /**
      * 导出可缓存的路由定义
      *
      * @return array<string, mixed>

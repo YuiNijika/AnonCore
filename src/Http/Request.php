@@ -84,16 +84,83 @@ class Request
     }
 
     /**
-     * 获取请求 URI 路径并去除 Query 参数
+     * 判断是否为指定的请求方法
+     * @param string $method
+     * @return bool
+     */
+    public function isMethod(string $method): bool
+    {
+        return $this->method() === strtoupper($method);
+    }
+
+    /**
+     * 获取请求 URI 路径并去除 Query 参数 (等同于 path)
      * @return string
      */
     public function uri(): string
+    {
+        return $this->path();
+    }
+
+    /**
+     * 获取请求路径 (不含查询参数)
+     * @return string
+     */
+    public function path(): string
     {
         $uri = $this->server['REQUEST_URI'] ?? '/';
         if ($pos = strpos($uri, '?')) {
             $uri = substr($uri, 0, $pos);
         }
-        return $uri;
+        return '/' . ltrim($uri, '/');
+    }
+
+    /**
+     * 获取原始的查询字符串
+     * @return string
+     */
+    public function queryString(): string
+    {
+        return $this->server['QUERY_STRING'] ?? '';
+    }
+
+    /**
+     * 获取当前站点的 Host (含端口)
+     * @return string
+     */
+    public function host(): string
+    {
+        return $this->header('Host', $this->server['HTTP_HOST'] ?? $this->server['SERVER_NAME'] ?? 'localhost');
+    }
+
+    /**
+     * 获取当前站点的 Base URL (协议 + 域名 + 端口)
+     * 优先读取全局配置，未配置时从请求中推导
+     * @return string
+     */
+    public function baseUrl(): string
+    {
+        if (defined('APP_URL') && APP_URL !== '') {
+            return rtrim(APP_URL, '/');
+        }
+
+        $isSecure = (!empty($this->server['HTTPS']) && $this->server['HTTPS'] !== 'off')
+            || (isset($this->server['SERVER_PORT']) && $this->server['SERVER_PORT'] == 443)
+            || ($this->header('X-Forwarded-Proto') === 'https');
+
+        $protocol = $isSecure ? 'https://' : 'http://';
+        
+        return $protocol . $this->host();
+    }
+
+    /**
+     * 获取当前请求的完整 URL (Base URL + URI + Query)
+     * @return string
+     */
+    public function fullUrl(): string
+    {
+        $uri = $this->server['REQUEST_URI'] ?? '/';
+        return $this->baseUrl() . $uri;
     }
 
     /**
@@ -132,6 +199,60 @@ class Request
 
         // 所有来源都无法获取有效 IP 时返回默认值
         return '127.0.0.1';
+    }
+
+    /**
+     * 判断是否是 AJAX 请求
+     * @return bool
+     */
+    public function isAjax(): bool
+    {
+        return strtolower((string) $this->header('X-Requested-With', '')) === 'xmlhttprequest';
+    }
+
+    /**
+     * 判断当前请求的 Content-Type 是否是 JSON
+     * @return bool
+     */
+    public function isJson(): bool
+    {
+        $contentType = $this->header('Content-Type', '');
+        return str_contains(strtolower($contentType), '/json') || str_contains(strtolower($contentType), '+json');
+    }
+
+    /**
+     * 判断客户端是否期望返回 JSON 响应
+     * @return bool
+     */
+    public function wantsJson(): bool
+    {
+        $accept = $this->header('Accept', '');
+        return str_contains(strtolower($accept), '/json') || str_contains(strtolower($accept), '+json') || $this->isAjax();
+    }
+
+    /**
+     * 检查当前请求路径是否匹配给定的模式
+     * @param string ...$patterns (支持 * 通配符)
+     * @return bool
+     */
+    public function is(string ...$patterns): bool
+    {
+        $path = urldecode($this->path());
+
+        foreach ($patterns as $pattern) {
+            $pattern = ltrim($pattern, '/');
+            if ($pattern === $path || $pattern === ltrim($path, '/')) {
+                return true;
+            }
+
+            $pattern = preg_quote($pattern, '#');
+            $pattern = str_replace('\*', '.*', $pattern);
+            if (preg_match('#^' . $pattern . '\z#u', ltrim($path, '/')) === 1) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

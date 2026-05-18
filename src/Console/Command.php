@@ -85,6 +85,65 @@ abstract class Command
     }
 
     /**
+     * 在控制台输出表格
+     *
+     * @param array $headers 表头数组
+     * @param array $rows 数据行数组 (二维数组)
+     */
+    protected function table(array $headers, array $rows): void
+    {
+        // 计算每列最大宽度
+        $columnWidths = [];
+        foreach ($headers as $index => $header) {
+            $columnWidths[$index] = mb_strwidth((string) $header);
+        }
+        
+        foreach ($rows as $row) {
+            $rowValues = array_values($row);
+            foreach ($rowValues as $index => $value) {
+                $width = mb_strwidth((string) $value);
+                if (!isset($columnWidths[$index]) || $width > $columnWidths[$index]) {
+                    $columnWidths[$index] = $width;
+                }
+            }
+        }
+
+        // 生成分隔线
+        $separator = '+';
+        foreach ($columnWidths as $width) {
+            $separator .= str_repeat('-', $width + 2) . '+';
+        }
+
+        // 输出表头
+        echo $separator . PHP_EOL;
+        echo '|';
+        foreach ($headers as $index => $header) {
+            $padding = $columnWidths[$index] - mb_strwidth((string) $header);
+            echo ' ' . $header . str_repeat(' ', $padding) . ' |';
+        }
+        echo PHP_EOL;
+        echo $separator . PHP_EOL;
+
+        // 输出数据行
+        foreach ($rows as $row) {
+            echo '|';
+            $rowValues = array_values($row);
+            foreach ($rowValues as $index => $value) {
+                // 处理缺失列
+                $valStr = (string) $value;
+                $width = isset($columnWidths[$index]) ? $columnWidths[$index] : 0;
+                $padding = max(0, $width - mb_strwidth($valStr));
+                echo ' ' . $valStr . str_repeat(' ', $padding) . ' |';
+            }
+            echo PHP_EOL;
+        }
+        
+        if (!empty($rows)) {
+            echo $separator . PHP_EOL;
+        }
+    }
+
+    /**
      * 获取项目根目录
      */
     protected function projectRoot(): string

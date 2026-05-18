@@ -101,6 +101,9 @@ class Response
      */
     public function setHeader(string $name, string $value): self
     {
+        // 防御 CRLF 注入
+        $name = str_replace(["\r", "\n"], '', $name);
+        $value = str_replace(["\r", "\n"], '', $value);
         $this->headers[$name] = $value;
         return $this;
     }

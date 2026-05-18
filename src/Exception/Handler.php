@@ -6,6 +6,7 @@ use Throwable;
 use Anon\Core\Facade\Config;
 use Anon\Core\Facade\Log;
 use Anon\Core\Facade\Env;
+use Anon\Core\Facade\Hook;
 use Anon\Core\Http\Response;
 
 class Handler
@@ -47,6 +48,15 @@ class Handler
                 'file'    => $e->getFile(),
                 'line'    => $e->getLine()
             ], 'exception');
+        }
+
+        // 触发异常渲染钩子，允许用户自定义响应输出结构（返回 Response 则直接发送）
+        $hookResponses = Hook::trigger('exception_render', ['exception' => $e, 'statusCode' => $statusCode, 'message' => $message, 'data' => $responseData]);
+        foreach ($hookResponses as $hookResponse) {
+            if ($hookResponse instanceof Response) {
+                $hookResponse->send();
+                exit(1);
+            }
         }
 
         // 统一输出 JSON 响应

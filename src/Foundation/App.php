@@ -17,12 +17,12 @@ class App extends Container
     /**
      * @var string 框架版本
      */
-    public const VERSION = 'v4.0.0-next';
+    public const VERSION = 'v4.0.0-next-alpha2';
 
     /**
      * @var string 框架名称
      */
-    public const NAME = 'Anon Next';
+    public const NAME = 'Anon Framework Next';
 
     /**
      * @var string 应用基础路径

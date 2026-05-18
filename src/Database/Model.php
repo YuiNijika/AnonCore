@@ -78,6 +78,101 @@ abstract class Model implements JsonSerializable, ArrayAccess
     protected bool $softDelete = false;
 
     /**
+     * @var array 已注册的模型事件回调
+     */
+    protected static array $dispatcher = [];
+
+    /**
+     * 注册一个模型事件
+     */
+    public static function registerEvent(string $event, callable $callback): void
+    {
+        static::$dispatcher[static::class][$event][] = $callback;
+    }
+
+    /**
+     * 触发模型事件
+     */
+    protected function fireEvent(string $event): bool
+    {
+        if (!isset(static::$dispatcher[static::class][$event])) {
+            return true;
+        }
+
+        foreach (static::$dispatcher[static::class][$event] as $callback) {
+            if ($callback($this) === false) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * 当模型被创建前
+     */
+    public static function creating(callable $callback): void
+    {
+        static::registerEvent('creating', $callback);
+    }
+
+    /**
+     * 当模型被创建后
+     */
+    public static function created(callable $callback): void
+    {
+        static::registerEvent('created', $callback);
+    }
+
+    /**
+     * 当模型被更新前
+     */
+    public static function updating(callable $callback): void
+    {
+        static::registerEvent('updating', $callback);
+    }
+
+    /**
+     * 当模型被更新后
+     */
+    public static function updated(callable $callback): void
+    {
+        static::registerEvent('updated', $callback);
+    }
+
+    /**
+     * 当模型被保存前（包含创建与更新）
+     */
+    public static function saving(callable $callback): void
+    {
+        static::registerEvent('saving', $callback);
+    }
+
+    /**
+     * 当模型被保存后（包含创建与更新）
+     */
+    public static function saved(callable $callback): void
+    {
+        static::registerEvent('saved', $callback);
+    }
+
+    /**
+     * 当模型被删除前
+     */
+    public static function deleting(callable $callback): void
+    {
+        static::registerEvent('deleting', $callback);
+    }
+
+    /**
+     * 当模型被删除后
+     */
+    public static function deleted(callable $callback): void
+    {
+        static::registerEvent('deleted', $callback);
+    }
+
+    /**
      * 构造函数
      */
     public function __construct(array $attributes = [])
@@ -271,6 +366,10 @@ abstract class Model implements JsonSerializable, ArrayAccess
      */
     public function save(): bool
     {
+        if ($this->fireEvent('saving') === false) {
+            return false;
+        }
+
         $query = $this->query();
 
         if ($this->timestamps) {
@@ -282,14 +381,27 @@ abstract class Model implements JsonSerializable, ArrayAccess
         }
 
         if ($this->exists) {
+            if ($this->fireEvent('updating') === false) {
+                return false;
+            }
+
             $saved = $query->where($this->primaryKey, $this->getAttribute($this->primaryKey))
                            ->update($this->attributes) > 0;
+            
+            if ($saved) {
+                $this->fireEvent('updated');
+            }
         } else {
+            if ($this->fireEvent('creating') === false) {
+                return false;
+            }
+
             $id = $query->insert($this->attributes);
             if ($id) {
                 $this->setAttribute($this->primaryKey, $id);
                 $this->exists = true;
                 $saved = true;
+                $this->fireEvent('created');
             } else {
                 $saved = false;
             }
@@ -297,6 +409,7 @@ abstract class Model implements JsonSerializable, ArrayAccess
 
         if ($saved) {
             $this->original = $this->attributes;
+            $this->fireEvent('saved');
         }
 
         return $saved;
@@ -311,18 +424,27 @@ abstract class Model implements JsonSerializable, ArrayAccess
             throw new \Exception('No primary key defined on model.');
         }
 
+        if ($this->fireEvent('deleting') === false) {
+            return false;
+        }
+
         if ($this->exists) {
             if ($this->usesSoftDelete()) {
                 $time = date('Y-m-d H:i:s');
                 $deletedAt = static::DELETED_AT;
                 $this->setAttribute($deletedAt, $time);
-                return $this->query()
+                $deleted = $this->query()
                     ->withTrashed()
                     ->where($this->primaryKey, $this->getAttribute($this->primaryKey))
                     ->update([$deletedAt => $time]) > 0;
+            } else {
+                $deleted = $this->query()->where($this->primaryKey, $this->getAttribute($this->primaryKey))->delete() > 0;
             }
 
-            return $this->query()->where($this->primaryKey, $this->getAttribute($this->primaryKey))->delete() > 0;
+            if ($deleted) {
+                $this->fireEvent('deleted');
+                return true;
+            }
         }
 
         return false;

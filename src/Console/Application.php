@@ -14,7 +14,7 @@ class Application
      */
     protected array $commands = [];
 
-    public function __construct(string $version = '1.0.0')
+    public function __construct(string $version = undefined)
     {
         $this->version = $version;
         $this->registerDefaultCommands();
@@ -31,6 +31,7 @@ class Application
         $this->add(new Commands\Config\Clear());
         $this->add(new Commands\Route\Cache());
         $this->add(new Commands\Route\Clear());
+        $this->add(new Commands\Route\RouteList());
         $this->add(new Commands\Make\Controller());
         $this->add(new Commands\Make\Model());
         $this->add(new Commands\Make\Request());

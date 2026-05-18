@@ -4,6 +4,7 @@ namespace Anon\Core\Console\Commands\Queue;
 
 use Anon\Core\Console\Command;
 use Anon\Core\Facade\Queue;
+use Anon\Core\Facade\Hook;
 use Throwable;
 
 class Work extends Command
@@ -36,13 +37,19 @@ class Work extends Command
                     $maxTries = (int) ($payload['max_tries'] ?? 1);
                     $this->info("Processing: {$jobClass} [attempt {$attempt}/{$maxTries}]");
                     
-                    // 记录开始时�?                    $start = microtime(true);
+                    // 记录开始时�?                    $start = microtime(true);
+                    
+                    Hook::trigger('queue_job_process', ['job' => $job, 'payload' => $payload, 'attempt' => $attempt]);
 
                     try {
                         $job->handle();
                         $time = round((microtime(true) - $start) * 1000, 2);
+                        
+                        Hook::trigger('queue_job_success', ['job' => $job, 'payload' => $payload, 'time' => $time]);
                         $this->success("Processed: {$jobClass} ({$time}ms)");
                     } catch (Throwable $e) {
+                        Hook::trigger('queue_job_failed', ['job' => $job, 'payload' => $payload, 'exception' => $e]);
+                        
                         if (Queue::canRetry($payload)) {
                             Queue::release($payload, $backoff, $e);
                             $this->warning("Released: {$jobClass} -> retry after {$backoff}s ({$e->getMessage()})");

@@ -9,6 +9,8 @@ use Anon\Core\Http\Request;
 use Anon\Core\Http\Response;
 use Anon\Core\Support\Str;
 
+use Anon\Core\Facade\Hook;
+
 class Manager
 {
     /**
@@ -63,7 +65,7 @@ class Manager
     }
 
     /**
-     * 签发 Access / Refresh Token �?     *
+     * 签发 Access / Refresh Token �?     *
      * @return array<string, mixed>
      */
     public function issueTokenPair(
@@ -106,11 +108,19 @@ class Manager
             $this->extractSessionClaims($claims)
         );
 
+        Hook::trigger('auth_login', [
+            'user' => $user,
+            'guard' => $guard,
+            'subject' => $subject,
+            'session_id' => $sessionId,
+            'tokens' => $tokens
+        ]);
+
         return $tokens;
     }
 
     /**
-     * 解析当前请求中的 Token 并返�?Payload
+     * 解析当前请求中的 Token 并返�?Payload
      */
     public function user(?string $guard = null): ?array
     {
@@ -152,7 +162,7 @@ class Manager
     }
 
     /**
-     * 获取当前请求中解析到的原�?Token
+     * 获取当前请求中解析到的原�?Token
      */
     public function token(?string $guard = null): ?string
     {
@@ -165,7 +175,7 @@ class Manager
     }
 
     /**
-     * 获取当前请求中解析到�?Refresh Token
+     * 获取当前请求中解析到�?Refresh Token
      */
     public function refreshToken(?string $guard = null): ?string
     {
@@ -228,7 +238,7 @@ class Manager
     }
 
     /**
-     * 退出登�?     */
+     * 退出登�?     */
     public function logout(?string $guard = null): bool
     {
         $guard = $this->resolveGuardName($guard);
@@ -247,6 +257,13 @@ class Manager
 
         $this->forgetResolvedAuth($guard);
         $this->forgetResolvedRefreshAuth($guard);
+
+        if ($loggedOut) {
+            Hook::trigger('auth_logout', [
+                'guard' => $guard,
+                'payload' => $payload ?? $refreshPayload
+            ]);
+        }
 
         return $loggedOut;
     }
@@ -367,7 +384,7 @@ class Manager
     }
 
     /**
-     * 吊销除当前会话外的其他会�?     */
+     * 吊销除当前会话外的其他会�?     */
     public function revokeOtherSessions(?string $guard = null): int
     {
         $guard = $this->resolveGuardName($guard);
@@ -427,7 +444,7 @@ class Manager
     }
 
     /**
-     * 基于 Refresh Token 刷新 Token �?     *
+     * 基于 Refresh Token 刷新 Token �?     *
      * @return array<string, mixed>|null
      */
     public function refreshTokens(?string $guard = null, ?int $ttl = null, ?int $refreshTtl = null): ?array
@@ -474,7 +491,7 @@ class Manager
     }
 
     /**
-     * �?Token 写入响应 Cookie
+     * �?Token 写入响应 Cookie
      */
     public function setTokenCookie(Response $response, string $token, ?string $guard = null): Response
     {
@@ -499,7 +516,7 @@ class Manager
     }
 
     /**
-     * �?Refresh Token 写入响应 Cookie
+     * �?Refresh Token 写入响应 Cookie
      */
     public function setRefreshTokenCookie(Response $response, string $token, ?string $guard = null): Response
     {
@@ -550,7 +567,7 @@ class Manager
     }
 
     /**
-     * �?Token 对写入响�?Cookie
+     * �?Token 对写入响�?Cookie
      *
      * @param array<string, mixed> $tokens
      */
@@ -570,7 +587,7 @@ class Manager
     }
 
     /**
-     * 清理 Token �?Cookie
+     * 清理 Token �?Cookie
      */
     public function forgetTokenPairCookies(Response $response, ?string $guard = null): Response
     {
@@ -581,7 +598,7 @@ class Manager
     }
 
     /**
-     * 检查用户是否具备指定角�?     */
+     * 检查用户是否具备指定角�?     */
     public function hasRole(string|array $roles, ?string $guard = null): bool
     {
         $payload = $this->user($guard);
@@ -596,7 +613,7 @@ class Manager
     }
 
     /**
-     * 检查用户是否具备指定权�?     */
+     * 检查用户是否具备指定权�?     */
     public function hasPermission(string|array $permissions, ?string $guard = null): bool
     {
         $payload = $this->user($guard);

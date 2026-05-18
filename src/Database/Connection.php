@@ -6,6 +6,7 @@ use PDO;
 use PDOException;
 use Anon\Core\Facade\Config;
 use Anon\Core\Facade\Env;
+use Anon\Core\Facade\Hook;
 
 class Connection
 {
@@ -184,9 +185,17 @@ class Connection
      */
     public function select(string $sql, array $bindings = []): array
     {
+        Hook::trigger('db_query_begin', ['sql' => $sql, 'bindings' => $bindings]);
+        $start = microtime(true);
+
         $stmt = $this->getPdo()->prepare($sql);
         $stmt->execute($bindings);
-        return $stmt->fetchAll();
+        $result = $stmt->fetchAll();
+
+        $time = round((microtime(true) - $start) * 1000, 2);
+        Hook::trigger('db_query_end', ['sql' => $sql, 'bindings' => $bindings, 'time' => $time, 'result' => $result]);
+
+        return $result;
     }
 
     /**
@@ -197,9 +206,17 @@ class Connection
      */
     public function statement(string $sql, array $bindings = []): int
     {
+        Hook::trigger('db_query_begin', ['sql' => $sql, 'bindings' => $bindings]);
+        $start = microtime(true);
+
         $stmt = $this->getPdo()->prepare($sql);
         $stmt->execute($bindings);
-        return $stmt->rowCount();
+        $affected = $stmt->rowCount();
+
+        $time = round((microtime(true) - $start) * 1000, 2);
+        Hook::trigger('db_query_end', ['sql' => $sql, 'bindings' => $bindings, 'time' => $time, 'affected' => $affected]);
+
+        return $affected;
     }
 
     /**

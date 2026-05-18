@@ -3,6 +3,7 @@
 namespace Anon\Core\Http;
 
 use Exception;
+use Anon\Core\Facade\Config;
 
 class UploadedFile
 {
@@ -22,11 +23,11 @@ class UploadedFile
     }
 
     /**
-     * 获取原始文件名
+     * 获取原始文件名 (经过 basename 处理以防止路径穿越)
      */
     public function getClientOriginalName(): string
     {
-        return $this->originalName;
+        return basename($this->originalName);
     }
 
     /**
@@ -91,16 +92,19 @@ class UploadedFile
     /**
      * 将文件移动到指定目录
      *
-     * @param string $directory 目标目录
+     * @param string|null $directory 目标目录（如果为 null，则从配置读取 upload.path）
      * @param string|null $name 可选的新文件名，如果不传则生成随机名
      * @return string 返回保存的完整路径
      * @throws Exception
      */
-    public function move(string $directory, ?string $name = null): string
+    public function move(?string $directory = null, ?string $name = null): string
     {
         if (!$this->isValid()) {
             throw new Exception("Cannot move invalid uploaded file. Error code: {$this->error}");
         }
+
+        $defaultUploadPath = defined('BASE_PATH') ? BASE_PATH . '/run/storage' : sys_get_temp_dir();
+        $directory = $directory ?? Config::get('upload.path', $defaultUploadPath);
 
         if (!is_dir($directory)) {
             if (!mkdir($directory, 0755, true) && !is_dir($directory)) {

@@ -24,13 +24,15 @@ class Local implements Contract
         // 过滤危险字符，防止路径穿越攻击
         $normalizedPath = realpath($this->root . '/' . ltrim($path, '/'));
         
+        $realRoot = realpath($this->root);
+        
         // 允许新建文件时的路径验证（realpath 对不存在的文件返回 false）
         if ($normalizedPath === false) {
             $normalizedPath = $this->root . '/' . ltrim($path, '/');
             if (str_contains($normalizedPath, '..')) {
                 throw new \InvalidArgumentException("Invalid path: Path traversal is not allowed.");
             }
-        } elseif (!str_starts_with($normalizedPath, realpath($this->root))) {
+        } elseif (!str_starts_with($normalizedPath, $realRoot . DIRECTORY_SEPARATOR) && $normalizedPath !== $realRoot) {
             throw new \InvalidArgumentException("Invalid path: Path traversal is not allowed out of root.");
         }
         
