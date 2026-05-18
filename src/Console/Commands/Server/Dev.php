@@ -3,6 +3,7 @@
 namespace Anon\Core\Console\Commands\Server;
 
 use Anon\Core\Console\Command;
+use Anon\Core\Support\Config;
 
 class Dev extends Command
 {
@@ -11,9 +12,12 @@ class Dev extends Command
 
     public function execute(array $args): int
     {
-        // 获取配置参数，默认 host 127.0.0.1，默认 port 8000
-        $host = $this->getOption($args, 'host', '127.0.0.1');
-        $port = $this->getOption($args, 'port', '8000');
+        // 获取配置参数
+        $defaultHost = Config::get('server.host', '127.0.0.1');
+        $defaultPort = Config::get('server.port', '8000');
+
+        $host = $this->getOption($args, 'host', $defaultHost);
+        $port = $this->getOption($args, 'port', $defaultPort);
 
         // 计算 run 目录路径 
         $docRoot = getcwd() . DIRECTORY_SEPARATOR . 'run';
