@@ -12,6 +12,15 @@ class Client
     protected int $timeout = 10;
 
     /**
+     * 设置请求超时时间
+     */
+    public function timeout(int $seconds): self
+    {
+        $this->timeout = max(1, $seconds);
+        return $this;
+    }
+
+    /**
      * 发送 GET 请求
      *
      * @param string $url
@@ -89,7 +98,7 @@ class Client
         curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $method);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_HEADER, true);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+        curl_setopt($ch, CURLOPT_TIMEOUT, $this->timeout);
 
         // 如果需要忽略 SSL 校验，可开启以下配置
         // curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);

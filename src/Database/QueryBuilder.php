@@ -37,6 +37,8 @@ class QueryBuilder
         'not similar to', 'not ilike', '~~*', '!~~*'
     ];
 
+    protected array $allowedJoinTypes = ['INNER', 'LEFT', 'RIGHT', 'FULL', 'CROSS'];
+
     public function __construct(Connection $connection)
     {
         $this->connection = $connection;
@@ -62,10 +64,15 @@ class QueryBuilder
      */
     public function table(string $table, bool $prefix = true): self
     {
+        $this->assertIdentifier($table, true);
+
         if ($prefix) {
             $tablePrefix = $this->connection->getConfig('DATABASE_PREFIX', '');
             if ($tablePrefix === '') {
                 $tablePrefix = $this->connection->getConfig('prefix', '');
+            }
+            if ($tablePrefix !== '') {
+                $this->assertIdentifier($tablePrefix . $table, true);
             }
             $this->table = $tablePrefix . $table;
         } else {
@@ -81,7 +88,13 @@ class QueryBuilder
      */
     public function select(array|string $columns): self
     {
-        $this->select = is_array($columns) ? $columns : func_get_args();
+        $columns = is_array($columns) ? $columns : func_get_args();
+
+        foreach ($columns as $column) {
+            $this->assertIdentifier((string) $column, true);
+        }
+
+        $this->select = $columns;
         return $this;
     }
 
@@ -197,7 +210,11 @@ class QueryBuilder
         $first = $this->wrap($first);
         $second = $this->wrap($second);
         $operator = $this->validateOperator($operator);
-        $type = strtoupper($type);
+        $type = strtoupper(trim($type));
+
+        if (!in_array($type, $this->allowedJoinTypes, true)) {
+            throw new \InvalidArgumentException("Illegal join type [{$type}] and could cause SQL injection.");
+        }
 
         $this->joins[] = "{$type} JOIN {$table} ON {$first} {$operator} {$second}";
         return $this;
@@ -247,6 +264,8 @@ class QueryBuilder
      */
     public function limit(int $limit, int $offset = 0): self
     {
+        $limit = max(0, $limit);
+        $offset = max(0, $offset);
         $this->limit = "LIMIT {$offset}, {$limit}";
         return $this;
     }
@@ -258,6 +277,8 @@ class QueryBuilder
      */
     public function offset(int $offset): self
     {
+        $offset = max(0, $offset);
+
         // 只有在 limit 已经设置的情况下，offset 才有效
         if (!empty($this->limit)) {
             // 解析出原有的 limit
@@ -420,9 +441,17 @@ class QueryBuilder
      */
     protected function wrap(string $value): string
     {
+        $value = trim($value);
+
         if ($value === '*') {
             return $value;
         }
+
+        if ($this->isSafeExpression($value)) {
+            return $value;
+        }
+
+        $this->assertIdentifier($value, true);
 
         // 根据不同数据库类型使用不同的包装符
         // MySQL 使用 `, PgSQL 和 Oracle 使用 ", SQLServer 使用 [], SQLite 使用 " 或 `
@@ -441,12 +470,41 @@ class QueryBuilder
         if (str_contains($value, '.')) {
             return implode('.', array_map(fn($part) => $part === '*' ? $part : "{$wrapCharLeft}{$part}{$wrapCharRight}", explode('.', $value)));
         }
-        
-        // 防止已经被包裹，或者包含聚合函数如 COUNT 等复杂表达式
-        if (str_contains($value, $wrapCharLeft) || str_contains($value, '(') || str_contains($value, ' ')) {
-            return $value;
-        }
+
         return "{$wrapCharLeft}{$value}{$wrapCharRight}";
+    }
+
+    protected function assertIdentifier(string $value, bool $allowExpression = false): void
+    {
+        $value = trim($value);
+
+        if ($value === '*' || $value === '') {
+            if ($value === '') {
+                throw new \InvalidArgumentException('Database identifier cannot be empty.');
+            }
+            return;
+        }
+
+        if ($allowExpression && $this->isSafeExpression($value)) {
+            return;
+        }
+
+        $parts = explode('.', $value);
+        foreach ($parts as $part) {
+            if ($part === '*') {
+                continue;
+            }
+
+            if (!preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $part)) {
+                throw new \InvalidArgumentException("Illegal database identifier [{$value}] and could cause SQL injection.");
+            }
+        }
+    }
+
+    protected function isSafeExpression(string $value): bool
+    {
+        return preg_match('/^[A-Za-z_][A-Za-z0-9_\.]*\s+as\s+[A-Za-z_][A-Za-z0-9_]*$/i', $value) === 1
+            || preg_match('/^(COUNT|SUM|AVG|MIN|MAX)\((\*|[A-Za-z_][A-Za-z0-9_\.]*?)\)(\s+as\s+[A-Za-z_][A-Za-z0-9_]*)?$/i', $value) === 1;
     }
 
     /**

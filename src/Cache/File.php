@@ -39,7 +39,7 @@ class File implements Contract
             return $default;
         }
 
-        $data = unserialize($content);
+        $data = unserialize($content, ['allowed_classes' => false]);
         if ($data === false) {
             return $default;
         }
@@ -78,7 +78,7 @@ class File implements Contract
             return false;
         }
 
-        $data = unserialize($content);
+        $data = unserialize($content, ['allowed_classes' => false]);
         if ($data === false) {
             return false;
         }
@@ -129,7 +129,7 @@ class File implements Contract
 
         if (flock($fp, LOCK_EX)) {
             $content = stream_get_contents($fp);
-            $data = $content ? unserialize($content) : false;
+            $data = $content ? unserialize($content, ['allowed_classes' => false]) : false;
             
             $currentValue = 0;
             $expire = 0;

@@ -70,7 +70,7 @@ class Redis implements Contract
         }
 
         // 尝试反序列化
-        $unserialized = @unserialize($value);
+        $unserialized = @unserialize($value, ['allowed_classes' => false]);
         if ($unserialized !== false || $value === 'b:0;') {
             return $unserialized;
         }
@@ -104,9 +104,21 @@ class Redis implements Contract
 
     public function clear(): bool
     {
-        // 危险操作：清空当前数据库的所有数据
-        // 在实际业务中可能需要使用 scan 命令只清除指定 prefix 的键
-        return $this->redis->flushDB();
+        $iterator = null;
+        $success = true;
+
+        do {
+            $keys = $this->redis->scan($iterator, $this->prefix . '*', 100);
+            if ($keys === false) {
+                continue;
+            }
+
+            foreach ($keys as $key) {
+                $success = $this->redis->del($key) !== false && $success;
+            }
+        } while ($iterator !== 0);
+
+        return $success;
     }
 
     public function increment(string $key, int $value = 1): int|bool
@@ -153,7 +165,7 @@ class Redis implements Contract
             return str_contains($value, '.') ? (float)$value : (int)$value;
         }
 
-        $unserialized = @unserialize($value);
+        $unserialized = @unserialize($value, ['allowed_classes' => false]);
         if ($unserialized !== false || $value === 'b:0;') {
             return $unserialized;
         }

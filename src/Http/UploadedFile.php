@@ -113,13 +113,44 @@ class UploadedFile
         }
 
         $name = $name ?? $this->generateUniqueName();
+        $name = $this->sanitizeTargetName($name);
         $targetPath = rtrim($directory, '/\\') . DIRECTORY_SEPARATOR . $name;
+
+        $realDirectory = realpath($directory);
+        $targetDir = dirname($targetPath);
+        if (!is_dir($targetDir)) {
+            if (!mkdir($targetDir, 0755, true) && !is_dir($targetDir)) {
+                throw new Exception("Directory '{$targetDir}' was not created");
+            }
+        }
+
+        $targetDirectory = realpath($targetDir);
+        if ($realDirectory === false || $targetDirectory === false || !$this->isInsideDirectory($targetDirectory, $realDirectory)) {
+            throw new Exception("Invalid upload target path.");
+        }
 
         if (!move_uploaded_file($this->tempName, $targetPath)) {
             throw new Exception("Could not move the file to '{$targetPath}'");
         }
 
         return $targetPath;
+    }
+
+    protected function sanitizeTargetName(string $name): string
+    {
+        $name = str_replace('\\', '/', trim($name));
+        $name = ltrim($name, '/');
+
+        if ($name === '' || str_contains($name, '..') || preg_match('#^[A-Za-z]:/#', $name)) {
+            throw new Exception("Invalid uploaded file name.");
+        }
+
+        return $name;
+    }
+
+    protected function isInsideDirectory(string $path, string $directory): bool
+    {
+        return $path === $directory || str_starts_with($path, $directory . DIRECTORY_SEPARATOR);
     }
 
     /**

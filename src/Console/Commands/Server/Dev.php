@@ -13,8 +13,11 @@ class Dev extends Command
     public function execute(array $args): int
     {
         // 获取配置参数
-        $defaultHost = Config::get('server.host', '127.0.0.1');
-        $defaultPort = Config::get('server.port', '8000');
+        $config = new Config();
+        $config->load(getcwd() . DIRECTORY_SEPARATOR . 'anon.config.php');
+        
+        $defaultHost = $config->get('server.host', '127.0.0.1');
+        $defaultPort = $config->get('server.port', '8000');
 
         $host = $this->getOption($args, 'host', $defaultHost);
         $port = $this->getOption($args, 'port', $defaultPort);

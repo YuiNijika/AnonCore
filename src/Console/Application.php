@@ -14,7 +14,7 @@ class Application
      */
     protected array $commands = [];
 
-    public function __construct(string $version = undefined)
+    public function __construct(string $version = 'unknown')
     {
         $this->version = $version;
         $this->registerDefaultCommands();

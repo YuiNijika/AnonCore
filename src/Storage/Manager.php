@@ -67,6 +67,21 @@ class Manager implements Contract
         return $this->disk()->put($path, $contents);
     }
 
+    public function append(string $path, string $contents): bool
+    {
+        return $this->disk()->append($path, $contents);
+    }
+
+    public function copy(string $from, string $to): bool
+    {
+        return $this->disk()->copy($from, $to);
+    }
+
+    public function move(string $from, string $to): bool
+    {
+        return $this->disk()->move($from, $to);
+    }
+
     public function delete(string $path): bool
     {
         return $this->disk()->delete($path);
