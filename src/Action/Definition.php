@@ -23,6 +23,11 @@ class Definition
      */
     protected array $openapi = [];
 
+    /**
+     * @var array<string, mixed>
+     */
+    protected array $schema = [];
+
     public function __construct(
         protected string $name,
         protected string $handler,
@@ -91,6 +96,13 @@ class Definition
         return $this;
     }
 
+    public function schema(array $schema): self
+    {
+        $this->schema = array_replace_recursive($this->schema, $schema);
+
+        return $this;
+    }
+
     /**
      * @return array<string, mixed>
      */
@@ -101,6 +113,7 @@ class Definition
             'description' => $this->description,
             'tags' => $this->tags,
             'openapi' => $this->openapi,
+            'schema' => $this->schema,
         ];
     }
 
@@ -128,6 +141,14 @@ class Definition
     public function openapiSpec(): array
     {
         return $this->openapi;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function schemaSpec(): array
+    {
+        return $this->schema;
     }
 
     /**
@@ -175,6 +196,10 @@ class Definition
 
         if (isset($meta['openapi']) && is_array($meta['openapi'])) {
             $definition->openapi($meta['openapi']);
+        }
+
+        if (isset($meta['schema']) && is_array($meta['schema'])) {
+            $definition->schema($meta['schema']);
         }
 
         return $definition;

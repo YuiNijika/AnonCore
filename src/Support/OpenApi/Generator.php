@@ -23,6 +23,7 @@ class Generator
                 'version' => App::VERSION,
             ],
             'paths' => [],
+            'components' => $this->components(),
         ];
 
         foreach ($routes as $method => $items) {
@@ -76,6 +77,10 @@ class Generator
         $parameters = $this->parameters($route->uri);
         if ($parameters !== []) {
             $operation['parameters'] = $parameters;
+        }
+
+        if ($route->schema !== []) {
+            $operation['requestBody'] = $this->requestBody($route->schema);
         }
 
         return $operation;
@@ -163,17 +168,7 @@ class Generator
             'operationId' => 'action_' . preg_replace('/[^A-Za-z0-9_]+/', '_', $action->name()),
             'tags' => $action->tagList() !== [] ? $action->tagList() : ['Server Actions'],
             'summary' => $action->summaryText() ?: 'Call server action ' . $action->name(),
-            'requestBody' => [
-                'required' => true,
-                'content' => [
-                    'application/json' => [
-                        'schema' => [
-                            'type' => 'object',
-                            'additionalProperties' => true,
-                        ],
-                    ],
-                ],
-            ],
+            'requestBody' => $this->requestBody($action->schemaSpec()),
             'responses' => [
                 '200' => [
                     'description' => 'OK',
@@ -201,5 +196,130 @@ class Generator
         }
 
         return $operation;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    protected function requestBody(array $schema): array
+    {
+        return [
+            'required' => true,
+            'content' => [
+                'application/json' => [
+                    'schema' => $schema === []
+                        ? [
+                            'type' => 'object',
+                            'additionalProperties' => true,
+                        ]
+                        : $this->objectSchema($schema),
+                ],
+            ],
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    protected function objectSchema(array $schema): array
+    {
+        if (($schema['type'] ?? null) === 'object' || isset($schema['properties'])) {
+            return $schema;
+        }
+
+        $required = [];
+        $properties = [];
+
+        foreach ($schema as $name => $definition) {
+            if (!is_string($name)) {
+                continue;
+            }
+
+            $property = $this->propertySchema($definition);
+            if (($property['required'] ?? false) === true) {
+                $required[] = $name;
+                unset($property['required']);
+            }
+
+            $properties[$name] = $property;
+        }
+
+        $resolved = [
+            'type' => 'object',
+            'properties' => $properties,
+        ];
+
+        if ($required !== []) {
+            $resolved['required'] = $required;
+        }
+
+        return $resolved;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    protected function propertySchema(mixed $definition): array
+    {
+        if (is_array($definition)) {
+            return $definition;
+        }
+
+        if (!is_string($definition)) {
+            return ['type' => 'string'];
+        }
+
+        $parts = array_filter(array_map('trim', explode('|', $definition)));
+        $schema = ['type' => 'string'];
+
+        foreach ($parts as $part) {
+            if ($part === 'required') {
+                $schema['required'] = true;
+                continue;
+            }
+
+            $schema['type'] = match ($part) {
+                'int', 'integer' => 'integer',
+                'bool', 'boolean' => 'boolean',
+                'float', 'double', 'number', 'numeric' => 'number',
+                'array' => 'array',
+                'object' => 'object',
+                default => $schema['type'],
+            };
+        }
+
+        return $schema;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    protected function components(): array
+    {
+        return [
+            'schemas' => [
+                'ApiSuccess' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'success' => ['type' => 'boolean', 'example' => true],
+                        'code' => ['type' => 'string', 'example' => 'OK'],
+                        'message' => ['type' => 'string', 'example' => 'OK'],
+                        'data' => ['nullable' => true],
+                        'meta' => ['type' => 'object', 'additionalProperties' => true],
+                        'links' => ['type' => 'object', 'additionalProperties' => true],
+                    ],
+                ],
+                'ApiError' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'success' => ['type' => 'boolean', 'example' => false],
+                        'code' => ['type' => 'string', 'example' => 'VALIDATION_FAILED'],
+                        'message' => ['type' => 'string'],
+                        'errors' => ['nullable' => true],
+                        'trace_id' => ['type' => 'string', 'nullable' => true],
+                    ],
+                ],
+            ],
+        ];
     }
 }

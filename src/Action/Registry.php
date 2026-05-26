@@ -46,6 +46,10 @@ class Registry
             $definition->openapi($options['openapi']);
         }
 
+        if (isset($options['schema']) && is_array($options['schema'])) {
+            $definition->schema($options['schema']);
+        }
+
         return $this->definitions[$name] = $definition;
     }
 

@@ -151,6 +151,16 @@ class Router
     protected array $pendingMiddlewareStack = [];
 
     /**
+     * @var array<int, string> 暂存通过 version() 链式调用传入的前置前缀
+     */
+    protected array $pendingPrefixStack = [];
+
+    /**
+     * @var array<string, callable|array{class: string, key: string}>
+     */
+    protected array $bindings = [];
+
+    /**
      * @var RouteItem[] 暂存刚注册的单个路由, 用于后置链式调用
      */
     protected array $lastRouteItems = [];
@@ -217,6 +227,7 @@ class Router
         return [
             'routes' => $routes,
             'global_middlewares' => $this->globalMiddlewares,
+            'bindings' => $this->exportBindingsForCache(),
             'actions' => $actions,
         ];
     }
@@ -232,6 +243,7 @@ class Router
         $this->globalMiddlewares = is_array($payload['global_middlewares'] ?? null)
             ? $payload['global_middlewares']
             : [];
+        $this->bindings = $this->restoreBindingsFromCache($payload['bindings'] ?? []);
 
         foreach (($payload['routes'] ?? []) as $item) {
             if (!is_array($item)) {
@@ -332,6 +344,55 @@ class Router
     }
 
     /**
+     * @return array<string, array{class: string, key: string}>
+     */
+    protected function exportBindingsForCache(): array
+    {
+        $bindings = [];
+
+        foreach ($this->bindings as $name => $binding) {
+            if (is_callable($binding)) {
+                throw new \RuntimeException("Unable to cache route binding [{$name}] because closure bindings are not supported.");
+            }
+
+            if (is_array($binding) && isset($binding['class'], $binding['key'])) {
+                $bindings[$name] = [
+                    'class' => (string) $binding['class'],
+                    'key' => (string) $binding['key'],
+                ];
+            }
+        }
+
+        return $bindings;
+    }
+
+    /**
+     * @return array<string, array{class: string, key: string}>
+     */
+    protected function restoreBindingsFromCache(mixed $bindings): array
+    {
+        if (!is_array($bindings)) {
+            return [];
+        }
+
+        $restored = [];
+        foreach ($bindings as $name => $binding) {
+            if (!is_string($name) || !is_array($binding)) {
+                continue;
+            }
+
+            if (isset($binding['class'], $binding['key']) && class_exists((string) $binding['class'])) {
+                $restored[$name] = [
+                    'class' => (string) $binding['class'],
+                    'key' => (string) $binding['key'],
+                ];
+            }
+        }
+
+        return $restored;
+    }
+
+    /**
      * 为当前正在创建的路由或路由组绑定中间件
      */
     public function middleware(array|string $middleware): self
@@ -351,6 +412,56 @@ class Router
 
         // 否则是前置调用 Route::middleware()->group()
         $this->pendingMiddlewareStack[] = $middleware;
+        return $this;
+    }
+
+    /**
+     * 按 API 版本创建分组前缀，例如 v1 -> /api/v1。
+     */
+    public function version(string $version, string $base = '/api'): self
+    {
+        $version = trim($version, "/ \t\n\r\0\x0B");
+        $base = '/' . trim($base, '/');
+
+        if ($version === '') {
+            return $this;
+        }
+
+        if (!preg_match('/^v?[A-Za-z0-9._-]+$/', $version)) {
+            throw new \InvalidArgumentException('Invalid API version.');
+        }
+
+        if ($version[0] !== 'v') {
+            $version = 'v' . $version;
+        }
+
+        $this->pendingPrefixStack[] = rtrim($base, '/') . '/' . $version;
+        return $this;
+    }
+
+    /**
+     * 显式绑定路由参数。
+     */
+    public function bind(string $name, callable $resolver): self
+    {
+        $name = trim($name);
+        if ($name !== '') {
+            $this->bindings[$name] = $resolver;
+        }
+
+        return $this;
+    }
+
+    /**
+     * 将路由参数绑定到模型类。
+     */
+    public function model(string $name, string $class, string $key = 'id'): self
+    {
+        $name = trim($name);
+        if ($name !== '' && class_exists($class)) {
+            $this->bindings[$name] = ['class' => $class, 'key' => $key];
+        }
+
         return $this;
     }
 
@@ -381,6 +492,11 @@ class Router
         if (!empty($this->pendingMiddlewareStack)) {
             $pendingMiddlewares = array_pop($this->pendingMiddlewareStack);
             $middleware = array_merge($pendingMiddlewares, $middleware);
+        }
+
+        if (!empty($this->pendingPrefixStack)) {
+            $pendingPrefix = array_pop($this->pendingPrefixStack);
+            $prefix = rtrim($pendingPrefix, '/') . '/' . ltrim((string) $prefix, '/');
         }
 
         // 入栈当前状态
@@ -579,7 +695,7 @@ class Router
                     if (preg_match($routeItem->pattern, $uri, $matches)) {
                         // 提取命名参数
                         $params = array_filter($matches, 'is_string', ARRAY_FILTER_USE_KEY);
-                        $request->setRouteParams($params);
+                        $request->setRouteParams($this->resolveRouteBindings($params, $request));
                         return $this->runRouteThroughMiddleware($routeItem, $request);
                     }
                 }
@@ -587,6 +703,57 @@ class Router
         }
 
         throw new \Anon\Core\Exception\Http(404, "Route not found: {$method} {$uri}");
+    }
+
+    /**
+     * @param array<string, mixed> $params
+     * @return array<string, mixed>
+     */
+    protected function resolveRouteBindings(array $params, Request $request): array
+    {
+        foreach ($params as $name => $value) {
+            if (!array_key_exists($name, $this->bindings)) {
+                continue;
+            }
+
+            $binding = $this->bindings[$name];
+
+            if (is_callable($binding)) {
+                $resolved = $binding($value, $request);
+                if ($resolved === null) {
+                    throw new \Anon\Core\Exception\Http(404, 'Route binding not found.', [], null, 'NOT_FOUND');
+                }
+
+                $params[$name] = $resolved;
+                continue;
+            }
+
+            if (is_array($binding) && isset($binding['class'], $binding['key'])) {
+                $params[$name] = $this->resolveModelBinding((string) $binding['class'], (string) $binding['key'], $value);
+            }
+        }
+
+        return $params;
+    }
+
+    protected function resolveModelBinding(string $class, string $key, mixed $value): mixed
+    {
+        if (method_exists($class, 'findBy')) {
+            $result = $class::findBy($key, $value);
+        } elseif ($key === 'id' && method_exists($class, 'find')) {
+            $result = $class::find($value);
+        } elseif (method_exists($class, 'where')) {
+            $query = $class::where($key, $value);
+            $result = is_object($query) && method_exists($query, 'first') ? $query->first() : $query;
+        } else {
+            $result = null;
+        }
+
+        if ($result === null) {
+            throw new \Anon\Core\Exception\Http(404, 'Route model not found.', [], null, 'NOT_FOUND');
+        }
+
+        return $result;
     }
 
     /**
@@ -770,6 +937,11 @@ class Router
 
                 if (is_a($className, Request::class, true)) {
                     $args[] = $this->resolveRequestDependency($className, $routeParams, $app);
+                    continue;
+                }
+
+                if (array_key_exists($name, $routeParams) && $routeParams[$name] instanceof $className) {
+                    $args[] = $routeParams[$name];
                     continue;
                 }
 

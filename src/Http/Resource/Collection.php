@@ -5,6 +5,7 @@ namespace Anon\Core\Http\Resource;
 use JsonSerializable;
 use Anon\Core\Http\Request;
 use Anon\Core\Foundation\App;
+use Anon\Core\Pagination\Paginator;
 
 class Collection implements JsonSerializable
 {
@@ -107,6 +108,10 @@ class Collection implements JsonSerializable
 
     protected function extractItems(iterable $resource): iterable
     {
+        if ($resource instanceof Paginator) {
+            return $resource->items();
+        }
+
         if (is_array($resource)) {
             foreach (['data', 'items', 'records'] as $key) {
                 if (isset($resource[$key]) && is_iterable($resource[$key])) {
@@ -137,6 +142,12 @@ class Collection implements JsonSerializable
 
     protected function extractPagination(iterable $resource): void
     {
+        if ($resource instanceof Paginator) {
+            $this->meta['pagination'] = $resource->meta();
+            $this->links($resource->links());
+            return;
+        }
+
         $source = is_array($resource) ? $resource : (is_object($resource) ? $resource : null);
         if ($source === null) {
             return;

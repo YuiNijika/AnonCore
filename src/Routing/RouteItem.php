@@ -54,6 +54,11 @@ class RouteItem
      */
     public array $openapi = [];
 
+    /**
+     * @var array<string, mixed>
+     */
+    public array $schema = [];
+
     public function __construct(string $method, string $uri, mixed $action)
     {
         $this->method = $method;
@@ -120,6 +125,15 @@ class RouteItem
     }
 
     /**
+     * 声明请求体字段 schema。
+     */
+    public function schema(array $schema): self
+    {
+        $this->schema = array_replace_recursive($this->schema, $schema);
+        return $this;
+    }
+
+    /**
      * @return array<string, mixed>
      */
     public function meta(): array
@@ -130,6 +144,7 @@ class RouteItem
             'description' => $this->description,
             'tags' => $this->tags,
             'openapi' => $this->openapi,
+            'schema' => $this->schema,
         ];
     }
 
@@ -143,6 +158,7 @@ class RouteItem
         $this->description = isset($meta['description']) ? (string) $meta['description'] : null;
         $this->tags = is_array($meta['tags'] ?? null) ? array_values(array_map('strval', $meta['tags'])) : [];
         $this->openapi = is_array($meta['openapi'] ?? null) ? $meta['openapi'] : [];
+        $this->schema = is_array($meta['schema'] ?? null) ? $meta['schema'] : [];
 
         return $this;
     }
