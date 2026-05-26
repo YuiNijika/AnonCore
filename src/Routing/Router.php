@@ -5,6 +5,7 @@ namespace Anon\Core\Routing;
 use Anon\Core\Http\Request;
 use Anon\Core\Http\Response;
 use Anon\Core\Foundation\App;
+use Anon\Core\Action\Registry as ActionRegistry;
 
 class Router
 { 
@@ -160,6 +161,15 @@ class Router
     protected array $globalMiddlewares = [];
 
     /**
+     * @var array<string, string> 中间件别名
+     */
+    protected array $middlewareAliases = [
+        'auth' => \Anon\Core\Http\Middleware\Authenticate::class,
+        'cors' => \Anon\Core\Http\Middleware\Cors::class,
+        'throttle' => \Anon\Core\Http\Middleware\Throttle::class,
+    ];
+
+    /**
      * 获取所有注册的路由集合
      *
      * @return RouteItem[][]
@@ -186,13 +196,28 @@ class Router
                     'pattern' => $routeItem->pattern,
                     'action' => $this->normalizeActionForCache($routeItem->action, $method, $uri),
                     'middlewares' => $routeItem->middlewares,
+                    'meta' => $routeItem->meta(),
                 ];
+            }
+        }
+
+        $actions = [];
+        $app = App::getInstance();
+        if ($app) {
+            try {
+                $registry = $app->make('action.registry');
+                if ($registry instanceof ActionRegistry) {
+                    $actions = $registry->exportForCache();
+                }
+            } catch (\Throwable) {
+                $actions = [];
             }
         }
 
         return [
             'routes' => $routes,
             'global_middlewares' => $this->globalMiddlewares,
+            'actions' => $actions,
         ];
     }
 
@@ -221,6 +246,7 @@ class Router
 
             $routeItem->pattern = isset($item['pattern']) ? (string) $item['pattern'] : null;
             $routeItem->middlewares = is_array($item['middlewares'] ?? null) ? $item['middlewares'] : [];
+            $routeItem->fillMeta(is_array($item['meta'] ?? null) ? $item['meta'] : []);
 
             $this->routes[$routeItem->method][$routeItem->uri] = $routeItem;
         }
@@ -237,6 +263,35 @@ class Router
             $middleware = [$middleware];
         }
         $this->globalMiddlewares = array_merge($this->globalMiddlewares, $middleware);
+        return $this;
+    }
+
+    /**
+     * 注册中间件别名
+     */
+    public function aliasMiddleware(string $alias, string $middleware): self
+    {
+        $alias = trim($alias);
+        if ($alias !== '') {
+            $this->middlewareAliases[$alias] = $middleware;
+        }
+
+        return $this;
+    }
+
+    /**
+     * 批量注册中间件别名
+     *
+     * @param array<string, string> $aliases
+     */
+    public function aliasMiddlewares(array $aliases): self
+    {
+        foreach ($aliases as $alias => $middleware) {
+            if (is_string($alias) && is_string($middleware)) {
+                $this->aliasMiddleware($alias, $middleware);
+            }
+        }
+
         return $this;
     }
 
@@ -485,26 +540,11 @@ class Router
      */
     public function dispatch(Request $request): Response
     {
-        // 构建全局中间件执行栈
         $next = function ($request) {
             return $this->findRouteAndExecute($request);
         };
 
-        // 倒序遍历包装全局中间件，保证洋葱外层先执行
-        for ($i = count($this->globalMiddlewares) - 1; $i >= 0; $i--) {
-            $middlewareClass = $this->globalMiddlewares[$i];
-            if (class_exists($middlewareClass)) {
-                $middlewareInstance = new $middlewareClass();
-                if (method_exists($middlewareInstance, 'handle')) {
-                    $next = function ($request) use ($middlewareInstance, $next) {
-                        return call_user_func([$middlewareInstance, 'handle'], $request, $next);
-                    };
-                }
-            }
-        }
-
-        // 触发调用栈
-        return call_user_func($next, $request);
+        return $this->runMiddlewareStack($this->globalMiddlewares, $request, $next);
     }
 
     /**
@@ -546,7 +586,7 @@ class Router
             }
         }
 
-        throw new \Anon\Core\Exception\HttpException(404, "Route not found: {$method} {$uri}");
+        throw new \Anon\Core\Exception\Http(404, "Route not found: {$method} {$uri}");
     }
 
     /**
@@ -562,53 +602,71 @@ class Router
      */
     protected function runRouteThroughMiddleware(RouteItem $routeItem, Request $request): Response
     {
-        $middlewares = $routeItem->middlewares;
         $action = $routeItem->action;
 
-        // 构建洋葱模型闭包执行栈
-        // 注意闭包必须通过引用或传递修改后的 $request 才能生效
         $next = function ($req) use ($action) {
             return $this->runAction($action, $req);
         };
 
-        // 倒序遍历包装中间件，保证洋葱外层先执行
+        return $this->runMiddlewareStack($routeItem->middlewares, $request, $next);
+    }
+
+    /**
+     * 执行中间件栈
+     */
+    public function runMiddlewareStack(array $middlewares, Request $request, callable $destination): Response
+    {
+        $next = $destination;
+
         for ($i = count($middlewares) - 1; $i >= 0; $i--) {
-            $middlewareDef = $middlewares[$i];
-            
-            // 解析中间件参数
-            $middlewareClass = $middlewareDef;
-            $middlewareArgs = [];
-            if (str_contains($middlewareDef, ':')) {
-                [$middlewareClass, $argsStr] = explode(':', $middlewareDef, 2);
-                $middlewareArgs = explode(',', $argsStr);
+            $resolved = $this->resolveMiddlewareDefinition($middlewares[$i]);
+            if ($resolved === null) {
+                continue;
             }
 
-            // 缓存中间件实例
+            [$middlewareClass, $middlewareArgs] = $resolved;
+
             if (!isset($this->middlewareInstanceCache[$middlewareClass])) {
-                if (class_exists($middlewareClass)) {
-                    $this->middlewareInstanceCache[$middlewareClass] = new $middlewareClass();
-                } else {
-                    continue;
-                }
+                $this->middlewareInstanceCache[$middlewareClass] = new $middlewareClass();
             }
-            
-            $middlewareInstance = $this->middlewareInstanceCache[$middlewareClass];
 
-            if (method_exists($middlewareInstance, 'handle')) {
-                // 这里的 $next 捕获了外层或上一个的闭包引用
-                $next = function ($req) use ($middlewareInstance, $next, $middlewareArgs) {
-                    try {
-                        return call_user_func_array([$middlewareInstance, 'handle'], array_merge([$req, $next], $middlewareArgs));
-                    } catch (\Throwable $e) {
-                        // 洋葱模型异常穿透必须支持拦截
-                        throw $e;
-                    }
-                };
+            $middlewareInstance = $this->middlewareInstanceCache[$middlewareClass];
+            if (!method_exists($middlewareInstance, 'handle')) {
+                continue;
             }
+
+            $next = function ($req) use ($middlewareInstance, $next, $middlewareArgs) {
+                return call_user_func_array([$middlewareInstance, 'handle'], array_merge([$req, $next], $middlewareArgs));
+            };
         }
 
-        // 触发调用栈
         return call_user_func($next, $request);
+    }
+
+    /**
+     * @return array{0: string, 1: array<int, string>}|null
+     */
+    protected function resolveMiddlewareDefinition(mixed $definition): ?array
+    {
+        if (!is_string($definition) || trim($definition) === '') {
+            return null;
+        }
+
+        $middlewareClass = trim($definition);
+        $middlewareArgs = [];
+
+        if (str_contains($middlewareClass, ':')) {
+            [$middlewareClass, $argsStr] = explode(':', $middlewareClass, 2);
+            $middlewareArgs = array_values(array_filter(array_map('trim', explode(',', $argsStr)), static fn ($arg) => $arg !== ''));
+        }
+
+        $middlewareClass = $this->middlewareAliases[$middlewareClass] ?? $middlewareClass;
+
+        if (!class_exists($middlewareClass)) {
+            return null;
+        }
+
+        return [$middlewareClass, $middlewareArgs];
     }
 
     /**
@@ -702,53 +760,65 @@ class Router
     {
         $args = [];
         $params = $reflect->getParameters();
-        
+
         foreach ($params as $param) {
             $name = $param->getName();
             $type = $param->getType();
 
-            // 如果参数有类/接口类型的提示，优先使用容器解析注入
             if ($type instanceof \ReflectionNamedType && !$type->isBuiltin()) {
                 $className = $type->getName();
-                
-                // 特殊处理 Request 及其子类
-                if (is_a($className, Request::class, true)) {
-                    // 如果参数类型是特定的 FormRequest，我们需要实例化它并执行验证
-                    if ($className !== Request::class && is_subclass_of($className, \Anon\Core\Http\FormRequest::class)) {
-                        /** @var \Anon\Core\Http\FormRequest $formRequest */
-                        $formRequest = $app->make($className);
-                        // 复制当前 request 的数据到 form request
-                        $currentRequest = $routeParams['request'] ?? $app->make(Request::class);
-                        $formRequest->cloneFrom($currentRequest);
 
-                        // 验证
-                        $formRequest->validateResolved();
-                        $args[] = $formRequest;
-                    } else {
-                        // 普通 Request 注入
-                        if (isset($routeParams['request']) && $routeParams['request'] instanceof Request) {
-                            $args[] = $routeParams['request'];
-                        } else {
-                            $args[] = $app->make($className);
-                        }
-                    }
-                } else {
-                    $args[] = $app->make($className);
+                if (is_a($className, Request::class, true)) {
+                    $args[] = $this->resolveRequestDependency($className, $routeParams, $app);
+                    continue;
                 }
+
+                $args[] = $app->make($className);
+                continue;
             }
-            // 然后尝试使用路由动态参数匹配
-            elseif (array_key_exists($name, $routeParams) && is_scalar($routeParams[$name])) {
+
+            if (array_key_exists($name, $routeParams) && is_scalar($routeParams[$name])) {
                 $args[] = $routeParams[$name];
-            } 
-            // 若存在默认值则使用默认值
-            elseif ($param->isDefaultValueAvailable()) {
+                continue;
+            }
+
+            if ($param->isDefaultValueAvailable()) {
                 $args[] = $param->getDefaultValue();
+                continue;
             }
-            // 无法匹配时注入 null
-            else {
-                $args[] = null;
-            }
+
+            $args[] = null;
         }
+
         return $args;
+    }
+
+    /**
+     * 解析 Request/FormRequest 参数
+     */
+    protected function resolveRequestDependency(string $className, array $routeParams, App $app): Request
+    {
+        $currentRequest = $routeParams['request'] ?? $app->make(Request::class);
+
+        if (!$currentRequest instanceof Request) {
+            $currentRequest = $app->make(Request::class);
+        }
+
+        if ($className === Request::class) {
+            return $currentRequest;
+        }
+
+        if (is_subclass_of($className, \Anon\Core\Http\FormRequest::class)) {
+            /** @var \Anon\Core\Http\FormRequest $formRequest */
+            $formRequest = $app->make($className);
+            $formRequest->cloneFrom($currentRequest);
+            $formRequest->validateResolved();
+
+            return $formRequest;
+        }
+
+        /** @var Request $request */
+        $request = $app->make($className);
+        return $request;
     }
 }

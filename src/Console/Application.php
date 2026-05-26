@@ -32,6 +32,7 @@ class Application
         $this->add(new Commands\Route\Cache());
         $this->add(new Commands\Route\Clear());
         $this->add(new Commands\Route\RouteList());
+        $this->add(new Commands\OpenApi\Generate());
         $this->add(new Commands\Make\Controller());
         $this->add(new Commands\Make\Model());
         $this->add(new Commands\Make\Request());

@@ -5,7 +5,7 @@ namespace Anon\Core\Http\Middleware;
 use Anon\Core\Http\Request;
 use Anon\Core\Http\Response;
 use Anon\Core\Facade\Cache;
-use Anon\Core\Exception\HttpException;
+use Anon\Core\Exception\Http;
 
 class Throttle
 {
@@ -27,7 +27,7 @@ class Throttle
         $key = $this->resolveRequestSignature($request);
 
         if ($this->tooManyAttempts($key, $maxAttempts)) {
-            throw new HttpException(429, 'Too Many Requests');
+            throw new Http(429, 'Too Many Requests');
         }
 
         $this->hit($key, $decaySeconds);

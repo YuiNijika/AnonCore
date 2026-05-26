@@ -18,6 +18,21 @@ abstract class Json implements JsonSerializable
      */
     public static string $wrap = 'data';
 
+    /**
+     * @var array<string, mixed>
+     */
+    protected array $additional = [];
+
+    /**
+     * @var array<string, mixed>
+     */
+    protected array $meta = [];
+
+    /**
+     * @var array<string, mixed>
+     */
+    protected array $links = [];
+
     public function __construct(mixed $resource)
     {
         $this->resource = $resource;
@@ -41,11 +56,35 @@ abstract class Json implements JsonSerializable
 
     /**
      * 将资源转换为数组
-     * 
-     * @param Request $request
-     * @return array
      */
     abstract public function toArray(Request $request): array;
+
+    /**
+     * 追加响应顶层数据
+     */
+    public function additional(array $data): static
+    {
+        $this->additional = array_replace_recursive($this->additional, $data);
+        return $this;
+    }
+
+    /**
+     * 追加 meta 数据
+     */
+    public function meta(array $meta): static
+    {
+        $this->meta = array_replace_recursive($this->meta, $meta);
+        return $this;
+    }
+
+    /**
+     * 追加 links 数据
+     */
+    public function links(array $links): static
+    {
+        $this->links = array_replace_recursive($this->links, $links);
+        return $this;
+    }
 
     /**
      * 解析资源为数组
@@ -54,6 +93,20 @@ abstract class Json implements JsonSerializable
     {
         $request = $request ?: App::getInstance()->make(Request::class);
         return $this->toArray($request);
+    }
+
+    /**
+     * 解析为统一响应可识别的 payload
+     *
+     * @return array{data: mixed, meta: array, links: array}
+     */
+    public function toResponsePayload(?Request $request = null): array
+    {
+        return [
+            'data' => $this->resolve($request),
+            'meta' => $this->meta,
+            'links' => $this->links,
+        ] + $this->additional;
     }
 
     /**
@@ -69,6 +122,10 @@ abstract class Json implements JsonSerializable
      */
     public function __get(string $key)
     {
+        if (is_array($this->resource)) {
+            return $this->resource[$key] ?? null;
+        }
+
         return $this->resource->{$key} ?? null;
     }
 }

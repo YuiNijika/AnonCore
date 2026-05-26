@@ -25,9 +25,19 @@ class App extends Container
     public const NAME = 'Anon Framework Next';
 
     /**
+     * @var string OpenAPI 版本
+     */
+    public const OPENAPI_VERSION = 'v1.0.0';
+
+    /**
      * @var string 应用基础路径
      */
     protected string $basePath;
+
+    /**
+     * @var ServiceProvider[]
+     */
+    protected array $providers = [];
 
     public function __construct(string $basePath)
     {
@@ -81,6 +91,10 @@ class App extends Container
 
         // 定义常量
         $this->defineConstants();
+
+        // 注册并启动服务提供者
+        $this->registerConfiguredProviders();
+        $this->bootProviders();
 
         // 注册全局异常和错误处理接口
         set_exception_handler([$this, 'handleException']);
@@ -156,6 +170,48 @@ class App extends Container
         $this->bind('storage', \Anon\Core\Storage\Manager::class);
         $this->bind('http', \Anon\Core\Http\Client::class);
         $this->bind('queue', \Anon\Core\Queue\Manager::class);
+
+        $actionRegistry = new \Anon\Core\Action\Registry();
+        $this->instance('action.registry', $actionRegistry);
+        $this->instance(\Anon\Core\Action\Registry::class, $actionRegistry);
+        $this->bind('action.dispatcher', function ($app) {
+            return new \Anon\Core\Action\Dispatcher($app->make('action.registry'));
+        });
+    }
+
+    /**
+     * 注册配置中的服务提供者
+     */
+    protected function registerConfiguredProviders(): void
+    {
+        $providers = Config::get('app.providers', []);
+        if (!is_array($providers)) {
+            return;
+        }
+
+        foreach ($providers as $providerClass) {
+            if (!is_string($providerClass) || !class_exists($providerClass)) {
+                continue;
+            }
+
+            $provider = new $providerClass($this);
+            if (!$provider instanceof ServiceProvider) {
+                continue;
+            }
+
+            $provider->register();
+            $this->providers[] = $provider;
+        }
+    }
+
+    /**
+     * 启动已注册的服务提供者
+     */
+    protected function bootProviders(): void
+    {
+        foreach ($this->providers as $provider) {
+            $provider->boot();
+        }
     }
 
     /**
@@ -256,7 +312,7 @@ class App extends Container
         $data = null;
 
         // 如果是 HTTP 异常，提取状态码和数据
-        if ($e instanceof \Anon\Core\Exception\HttpException) {
+        if ($e instanceof \Anon\Core\Exception\Http) {
             $code = $e->getStatusCode();
             $data = $e->getData();
         } else {
@@ -308,6 +364,14 @@ class App extends Container
                 /** @var \Anon\Core\Routing\Router $router */
                 $router = $this->make('router');
                 $router->loadCachedRoutes($payload);
+
+                /** @var \Anon\Core\Action\Registry $actions */
+                $actions = $this->make('action.registry');
+                if (is_array($payload['actions'] ?? null)) {
+                    $actions->loadCached($payload['actions']);
+                }
+
+                $this->mountActionEndpoint();
                 return;
             }
         }
@@ -321,6 +385,26 @@ class App extends Container
                 }
             }
         }
+
+        $this->mountActionEndpoint();
+    }
+
+    /**
+     * 挂载 Server Actions 统一入口
+     */
+    protected function mountActionEndpoint(): void
+    {
+        $path = '/' . trim((string) Config::get('actions.path', '/_actions'), '/');
+        if ($path === '/') {
+            $path = '/_actions';
+        }
+
+        /** @var \Anon\Core\Routing\Router $router */
+        $router = $this->make('router');
+        $router->post($path . '/{action}', [\Anon\Core\Action\Dispatcher::class, 'handle'])
+            ->name('server_actions.dispatch')
+            ->summary('Call a registered server action')
+            ->tags(['Server Actions']);
     }
 
     /**

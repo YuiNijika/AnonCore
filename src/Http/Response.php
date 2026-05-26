@@ -2,6 +2,8 @@
 
 namespace Anon\Core\Http;
 
+use JsonSerializable;
+
 class Response
 {
     /**
@@ -33,41 +35,54 @@ class Response
 
     /**
      * 成功返回方法
-     * @param mixed $data 响应数据
-     * @param string $message 成功信息
-     * @param int $code HTTP状态码
-     * @return self
      */
-    public static function success(mixed $data = null, string $message = 'success', int $code = 200): self
-    {
-        return new self([
-            'code' => $code,
-            'message' => $message,
-            'data' => $data
-        ], $code);
+    public static function success(
+        mixed $data = null,
+        string $message = 'OK',
+        int $statusCode = 200,
+        string $code = 'OK',
+        array $meta = [],
+        array $links = []
+    ): self {
+        $payload = self::successEnvelope($data, $message, $code, $meta, $links);
+
+        return new self($payload, $statusCode);
     }
 
     /**
      * 失败返回方法
-     * @param string $message 错误信息
-     * @param int $code HTTP状态码
-     * @param mixed $data 附加错误数据
-     * @return self
      */
-    public static function error(string $message = 'error', int $code = 400, mixed $data = null): self
-    {
-        return new self([
+    public static function error(
+        string $message = 'error',
+        int $statusCode = 400,
+        mixed $errors = null,
+        string $code = 'ERROR',
+        ?string $traceId = null,
+        array $debug = []
+    ): self {
+        $payload = [
+            'success' => false,
             'code' => $code,
             'message' => $message,
-            'data' => $data
-        ], $code);
+        ];
+
+        if ($errors !== null && $errors !== []) {
+            $payload['errors'] = $errors;
+        }
+
+        if ($traceId !== null && $traceId !== '') {
+            $payload['trace_id'] = $traceId;
+        }
+
+        if ($debug !== []) {
+            $payload['debug'] = $debug;
+        }
+
+        return new self($payload, $statusCode);
     }
 
     /**
-     *JSON格式的返回方法
-     * @param mixed $data 响应数据
-     * @param int $statusCode HTTP状态码
-     * @return self
+     * JSON格式的返回方法，保留原始输出能力
      */
     public static function json(mixed $data, int $statusCode = 200): self
     {
@@ -75,9 +90,40 @@ class Response
     }
 
     /**
+     * 构建成功响应 envelope
+     */
+    public static function successEnvelope(
+        mixed $data = null,
+        string $message = 'OK',
+        string $code = 'OK',
+        array $meta = [],
+        array $links = []
+    ): array {
+        $resolved = self::resolveResponseData($data);
+
+        $payload = [
+            'success' => true,
+            'code' => $code,
+            'message' => $message,
+            'data' => $resolved['data'],
+        ];
+
+        $meta = array_replace_recursive($resolved['meta'], $meta);
+        $links = array_replace_recursive($resolved['links'], $links);
+
+        if ($meta !== []) {
+            $payload['meta'] = $meta;
+        }
+
+        if ($links !== []) {
+            $payload['links'] = $links;
+        }
+
+        return $payload;
+    }
+
+    /**
      * 设置HTTP状态码
-     * @param int $code HTTP状态码
-     * @return self
      */
     public function setStatusCode(int $code): self
     {
@@ -94,14 +140,27 @@ class Response
     }
 
     /**
+     * 获取响应数据
+     */
+    public function getData(): mixed
+    {
+        return $this->data;
+    }
+
+    /**
+     * 替换响应数据
+     */
+    public function setData(mixed $data): self
+    {
+        $this->data = $data;
+        return $this;
+    }
+
+    /**
      * 追加自定义 HTTP 头
-     * @param string $name 头名称
-     * @param string $value 头值
-     * @return self
      */
     public function setHeader(string $name, string $value): self
     {
-        // 防御 CRLF 注入
         $name = str_replace(["\r", "\n"], '', $name);
         $value = str_replace(["\r", "\n"], '', $value);
         $this->headers[$name] = $value;
@@ -149,15 +208,12 @@ class Response
      */
     public function send(): void
     {
-        // 发送 HTTP 状态码
         http_response_code($this->statusCode);
-        
-        // 默认强制设置为 JSON 响应头符合 RESTful API 规范
+
         if (!isset($this->headers['Content-Type'])) {
             $this->headers['Content-Type'] = 'application/json; charset=utf-8';
         }
 
-        // 发送其他自定义头信息
         foreach ($this->headers as $name => $value) {
             header("{$name}: {$value}");
         }
@@ -166,16 +222,44 @@ class Response
             setcookie($cookie['name'], $cookie['value'], $cookie['options']);
         }
 
-        // 发送响应主体数据
         if (is_array($this->data) || is_object($this->data)) {
             echo json_encode($this->data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         } else {
             echo $this->data;
         }
-        
+
         if (function_exists('fastcgi_finish_request')) {
             fastcgi_finish_request();
         }
+    }
+
+    /**
+     * @return array{data: mixed, meta: array, links: array}
+     */
+    protected static function resolveResponseData(mixed $data): array
+    {
+        $meta = [];
+        $links = [];
+
+        if (is_object($data) && method_exists($data, 'toResponsePayload')) {
+            $payload = $data->toResponsePayload();
+
+            return [
+                'data' => $payload['data'] ?? null,
+                'meta' => is_array($payload['meta'] ?? null) ? $payload['meta'] : [],
+                'links' => is_array($payload['links'] ?? null) ? $payload['links'] : [],
+            ];
+        }
+
+        if ($data instanceof JsonSerializable) {
+            $data = $data->jsonSerialize();
+        }
+
+        return [
+            'data' => $data,
+            'meta' => $meta,
+            'links' => $links,
+        ];
     }
 
     /**

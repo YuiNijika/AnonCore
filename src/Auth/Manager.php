@@ -2,7 +2,7 @@
 
 namespace Anon\Core\Auth;
 
-use Anon\Core\Exception\HttpException;
+use Anon\Core\Exception\Http;
 use Anon\Core\Facade\Cache;
 use Anon\Core\Facade\Config;
 use Anon\Core\Http\Request;
@@ -633,11 +633,11 @@ class Manager
     public function authorizeRole(string|array $roles, ?string $guard = null): void
     {
         if (!$this->check($guard)) {
-            throw new HttpException(401, 'Unauthorized');
+            throw new Http(401, 'Unauthorized');
         }
 
         if (!$this->hasRole($roles, $guard)) {
-            throw new HttpException(403, 'Forbidden');
+            throw new Http(403, 'Forbidden');
         }
     }
 
@@ -647,11 +647,11 @@ class Manager
     public function authorizePermission(string|array $permissions, ?string $guard = null): void
     {
         if (!$this->check($guard)) {
-            throw new HttpException(401, 'Unauthorized');
+            throw new Http(401, 'Unauthorized');
         }
 
         if (!$this->hasPermission($permissions, $guard)) {
-            throw new HttpException(403, 'Forbidden');
+            throw new Http(403, 'Forbidden');
         }
     }
 

@@ -16,42 +16,56 @@ class Handler
      */
     public function render(Throwable $e): void
     {
+        $traceId = $this->makeTraceId();
         $statusCode = 500;
-        $responseData = null;
         $message = $e->getMessage();
+        $errors = null;
+        $errorCode = 'INTERNAL_ERROR';
 
-        // 判断是否为 HTTP 异常
-        if ($e instanceof HttpException) {
+        if ($e instanceof Http) {
             $statusCode = $e->getStatusCode();
-            $responseData = $e->getData();
+            $errors = $e->getData();
+            $errorCode = $e->getErrorCode();
         } else {
-            // 非 HTTP 异常在非 Debug 模式下隐藏真实错误信息
             if (!$this->isDebug()) {
-                $message = "Internal Server Error";
+                $message = 'Internal Server Error';
             }
         }
 
-        // 开发环境下返回详细的堆栈信息
+        if ($message === '') {
+            $message = $this->defaultMessage($statusCode);
+        }
+
+        $debug = [];
         if ($this->isDebug()) {
-            $responseData = [
-                'file'  => $e->getFile(),
-                'line'  => $e->getLine(),
+            $debug = [
+                'exception' => $e::class,
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
                 'trace' => explode("\n", $e->getTraceAsString()),
-                'data'  => $responseData
             ];
         }
 
-        // 只有 500 及以上的错误我们才记录到日志中
         if ($statusCode >= 500) {
             Log::error([
+                'trace_id' => $traceId,
                 'message' => $e->getMessage(),
-                'file'    => $e->getFile(),
-                'line'    => $e->getLine()
+                'exception' => $e::class,
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
             ], 'exception');
         }
 
-        // 触发异常渲染钩子，允许用户自定义响应输出结构（返回 Response 则直接发送）
-        $hookResponses = Hook::trigger('exception_render', ['exception' => $e, 'statusCode' => $statusCode, 'message' => $message, 'data' => $responseData]);
+        $hookResponses = Hook::trigger('exception_render', [
+            'exception' => $e,
+            'statusCode' => $statusCode,
+            'code' => $errorCode,
+            'message' => $message,
+            'errors' => $errors,
+            'trace_id' => $traceId,
+            'debug' => $debug,
+        ]);
+
         foreach ($hookResponses as $hookResponse) {
             if ($hookResponse instanceof Response) {
                 $hookResponse->send();
@@ -59,9 +73,7 @@ class Handler
             }
         }
 
-        // 统一输出 JSON 响应
-        $response = Response::error($message, $statusCode, $responseData);
-        $response->send();
+        Response::error($message, $statusCode, $errors, $errorCode, $traceId, $debug)->send();
         exit(1);
     }
 
@@ -75,5 +87,29 @@ class Handler
         }
 
         return (bool) Config::get('app.debug', Env::get('DEBUG_MODE', Env::get('APP_DEBUG', false)));
+    }
+
+    protected function makeTraceId(): string
+    {
+        try {
+            return bin2hex(random_bytes(8));
+        } catch (Throwable) {
+            return str_replace('.', '', uniqid('', true));
+        }
+    }
+
+    protected function defaultMessage(int $statusCode): string
+    {
+        return match ($statusCode) {
+            400 => 'Bad Request',
+            401 => 'Unauthorized',
+            403 => 'Forbidden',
+            404 => 'Not Found',
+            405 => 'Method Not Allowed',
+            409 => 'Conflict',
+            422 => 'Validation failed.',
+            429 => 'Too Many Requests',
+            default => $statusCode >= 500 ? 'Internal Server Error' : 'Error',
+        };
     }
 }

@@ -3,7 +3,7 @@
 namespace Anon\Core\Http;
 
 use Anon\Core\Facade\Validator;
-use Anon\Core\Exception\HttpException;
+use Anon\Core\Exception\Http;
 
 abstract class FormRequest extends Request
 {
@@ -33,23 +33,27 @@ abstract class FormRequest extends Request
      */
     public function validateResolved(): void
     {
-        // 权限验证
         if (!$this->authorize()) {
-            throw new HttpException(403, 'This action is unauthorized.');
+            throw Http::forbidden('This action is unauthorized.');
         }
 
-        // 数据验证
         $rules = $this->rules();
         if (empty($rules)) {
             return;
         }
 
-        $data = array_merge($this->get, $this->post, is_array($this->body) ? $this->body : []);
-        $validator = Validator::make($data, $rules, $this->messages());
+        $validator = Validator::make($this->validationData(), $rules, $this->messages());
 
         if ($validator->fails()) {
-            // 抛出 422 Unprocessable Entity
-            throw new HttpException(422, 'Validation failed.', $validator->errors());
+            throw Http::validation($validator->errors());
         }
+    }
+
+    /**
+     * 获取参与验证的输入数据
+     */
+    public function validationData(): array
+    {
+        return array_merge($this->get, $this->post, is_array($this->body) ? $this->body : []);
     }
 }
