@@ -31,7 +31,7 @@ class Migrator
         // SQLite 和其他数据库的兼容：
         // 这里使用尽量通用的语法，如果不支持 AUTO_INCREMENT 可能会报错
         // 简单处理：判断数据库驱动
-        $driver = DB::getConnection()->getAttribute(PDO::ATTR_DRIVER_NAME);
+        $driver = DB::getPdo()->getAttribute(PDO::ATTR_DRIVER_NAME);
         if ($driver === 'sqlite') {
             $sql = "CREATE TABLE IF NOT EXISTS {$this->table} (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -40,7 +40,7 @@ class Migrator
             )";
         }
 
-        DB::execute($sql);
+        DB::statement($sql);
     }
 
     /**
@@ -49,7 +49,7 @@ class Migrator
     protected function getRanMigrations(): array
     {
         $this->ensureTableExists();
-        $rows = DB::query("SELECT migration FROM {$this->table} ORDER BY batch ASC, migration ASC");
+        $rows = DB::select("SELECT migration FROM {$this->table} ORDER BY batch ASC, migration ASC");
         return array_column($rows, 'migration');
     }
 
@@ -59,7 +59,7 @@ class Migrator
     protected function getNextBatchNumber(): int
     {
         $this->ensureTableExists();
-        $rows = DB::query("SELECT MAX(batch) as batch FROM {$this->table}");
+        $rows = DB::select("SELECT MAX(batch) as batch FROM {$this->table}");
         return (int)($rows[0]['batch'] ?? 0) + 1;
     }
 
@@ -102,7 +102,7 @@ class Migrator
                 $migration->up();
 
                 // 记录到数据库
-                DB::execute("INSERT INTO {$this->table} (migration, batch) VALUES (?, ?)", [$name, $batch]);
+                DB::statement("INSERT INTO {$this->table} (migration, batch) VALUES (?, ?)", [$name, $batch]);
                 $executed[] = $name;
             }
         }

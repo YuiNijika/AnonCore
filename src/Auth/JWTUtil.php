@@ -26,7 +26,7 @@ class JWTUtil
 
     public static function encode(array $payload, ?string $secret = null): string
     {
-        $secret = $secret ?? (string) Config::get('auth.jwt_secret', Env::get('JWT_SECRET', 'anon_secret_key'));
+        $secret = $secret ?? Env::get('JWT_SECRET', 'anon_secret_key');
         $header = json_encode(['typ' => 'JWT', 'alg' => 'HS256']);
         $payloadJson = json_encode($payload);
 
@@ -41,7 +41,7 @@ class JWTUtil
 
     public static function decode(string $jwt, ?string $secret = null): array
     {
-        $secret = $secret ?? (string) Config::get('auth.jwt_secret', Env::get('JWT_SECRET', 'anon_secret_key'));
+        $secret = $secret ?? Env::get('JWT_SECRET', 'anon_secret_key');
         $tokenParts = explode('.', $jwt);
 
         if (count($tokenParts) != 3) {

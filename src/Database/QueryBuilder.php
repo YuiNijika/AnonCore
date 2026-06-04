@@ -152,7 +152,7 @@ class QueryBuilder
             'sql' => "{$column} IN ({$placeholders})",
             'boolean' => $boolean
         ];
-        $this->bindings = array_merge($this->bindings, $values);
+        $this->bindings = array_merge($this->bindings, array_values($values));
 
         return $this;
     }
@@ -217,6 +217,7 @@ class QueryBuilder
         }
 
         $this->joins[] = "{$type} JOIN {$table} ON {$first} {$operator} {$second}";
+
         return $this;
     }
 
@@ -536,17 +537,18 @@ class QueryBuilder
 
         // 取第一行数据的键作为字段名
         $firstRow = reset($values);
-        $columns = implode(', ', array_map([$this, 'wrap'], array_keys($firstRow)));
+        $firstRowKeys = array_keys($firstRow);
+        $columns = implode(', ', array_map([$this, 'wrap'], $firstRowKeys));
 
         $placeholders = [];
         $bindings = [];
 
-        $singlePlaceholder = '(' . implode(', ', array_fill(0, count($firstRow), '?')) . ')';
+        $singlePlaceholder = '(' . implode(', ', array_fill(0, count($firstRowKeys), '?')) . ')';
 
         foreach ($values as $row) {
             $placeholders[] = $singlePlaceholder;
-            foreach ($row as $value) {
-                $bindings[] = $value;
+            foreach ($firstRowKeys as $key) {
+                $bindings[] = $row[$key] ?? null;
             }
         }
 

@@ -17,7 +17,7 @@ class App extends Container
     /**
      * @var string 框架版本
      */
-    public const VERSION = 'v4.0.0-next-alpha2';
+    public const VERSION = 'v4.0.0-next';
 
     /**
      * @var string 框架名称

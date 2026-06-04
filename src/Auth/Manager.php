@@ -9,6 +9,7 @@ use Anon\Core\Http\Request;
 use Anon\Core\Http\Response;
 use Anon\Core\Support\Str;
 
+use Anon\Core\Facade\Env;
 use Anon\Core\Facade\Hook;
 
 class Manager
@@ -664,7 +665,7 @@ class Manager
 
     protected function resolveSecret(string $guard): string
     {
-        return (string) $this->resolveGuardConfig($guard, 'secret', Config::get('auth.jwt_secret', 'anon_secret_key'));
+        return (string) $this->resolveGuardConfig($guard, 'secret', Env::get('JWT_SECRET', 'anon_secret_key'));
     }
 
     protected function resolveRefreshSecret(string $guard): string

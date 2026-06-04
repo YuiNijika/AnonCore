@@ -385,8 +385,10 @@ abstract class Model implements JsonSerializable, ArrayAccess
                 return false;
             }
 
-            $saved = $query->where($this->primaryKey, $this->getAttribute($this->primaryKey))
-                           ->update($this->attributes) > 0;
+            $query->where($this->primaryKey, $this->getAttribute($this->primaryKey))
+                  ->update($this->attributes);
+            
+            $saved = true;
             
             if ($saved) {
                 $this->fireEvent('updated');
@@ -397,7 +399,15 @@ abstract class Model implements JsonSerializable, ArrayAccess
             }
 
             $id = $query->insert($this->attributes);
-            if ($id) {
+            
+            // 如果外部已经设置了主键（如 UUID），lastInsertId 可能为空，此时也算成功
+            $pkValue = $this->getAttribute($this->primaryKey);
+            
+            if ($pkValue !== null) {
+                $this->exists = true;
+                $saved = true;
+                $this->fireEvent('created');
+            } elseif ($id) {
                 $this->setAttribute($this->primaryKey, $id);
                 $this->exists = true;
                 $saved = true;

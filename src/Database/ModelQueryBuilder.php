@@ -157,13 +157,43 @@ class ModelQueryBuilder extends QueryBuilder
     /**
      * 删除数据，启用软删除时默认写入删除时间
      */
+    public function aggregate(string $function, string $column = '*'): mixed
+    {
+        $this->applySoftDeleteScope();
+        return parent::aggregate($function, $column);
+    }
+
+    public function update(array $values): int
+    {
+        $this->applySoftDeleteScope();
+        return parent::update($values);
+    }
+
+    public function exists(): bool
+    {
+        $this->applySoftDeleteScope();
+        return parent::exists();
+    }
+
     public function delete(): int
     {
+        $this->applySoftDeleteScope();
+        
         if ($this->softDeleteEnabled && !$this->includeTrashed && !$this->onlyTrashed) {
-            return $this->update([$this->deletedAtColumn => date('Y-m-d H:i:s')]);
+            return parent::update([$this->deletedAtColumn => date('Y-m-d H:i:s')]);
         }
 
         return parent::delete();
+    }
+
+    public function cursor(): \Generator
+    {
+        $this->applySoftDeleteScope();
+        $generator = parent::cursor();
+        foreach ($generator as $record) {
+            $models = $this->eagerLoadRelations($this->hydrate([$record]));
+            yield $models[0];
+        }
     }
 
     /**
@@ -184,6 +214,6 @@ class ModelQueryBuilder extends QueryBuilder
         }
 
         $this->withTrashed();
-        return $this->update([$this->deletedAtColumn => null]);
+        return parent::update([$this->deletedAtColumn => null]);
     }
 }

@@ -12,11 +12,30 @@ class Client
     protected int $timeout = 10;
 
     /**
+     * @var bool 是否启用 SSL 证书校验，默认 true
+     */
+    protected bool $sslVerify = true;
+
+    public function __construct()
+    {
+        $this->sslVerify = (bool) \Anon\Core\Facade\Config::get('http.ssl_verify', true);
+    }
+
+    /**
      * 设置请求超时时间
      */
     public function timeout(int $seconds): self
     {
         $this->timeout = max(1, $seconds);
+        return $this;
+    }
+
+    /**
+     * 设置是否启用 SSL 证书校验
+     */
+    public function sslVerify(bool $verify): self
+    {
+        $this->sslVerify = $verify;
         return $this;
     }
 
@@ -100,9 +119,11 @@ class Client
         curl_setopt($ch, CURLOPT_HEADER, true);
         curl_setopt($ch, CURLOPT_TIMEOUT, $this->timeout);
 
-        // 如果需要忽略 SSL 校验，可开启以下配置
-        // curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-        // curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+        // SSL 证书校验配置
+        if (!$this->sslVerify) {
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+        }
 
         if ($data !== null) {
             if (is_array($data)) {
