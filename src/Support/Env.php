@@ -60,12 +60,22 @@ class Env
             return $this->data[$key];
         }
 
-        $systemEnv = getenv($key);
-        if ($systemEnv !== false) {
-            return $this->parseValue($systemEnv);
+        if (function_exists('getenv')) {
+            $systemEnv = getenv($key);
+            if ($systemEnv !== false) {
+                return $this->parseValue($systemEnv);
+            }
         }
 
-        return isset($_ENV[$key]) ? $this->parseValue($_ENV[$key]) : $default;
+        if (isset($_ENV[$key])) {
+            return $this->parseValue($_ENV[$key]);
+        }
+
+        if (isset($_SERVER[$key])) {
+            return $this->parseValue($_SERVER[$key]);
+        }
+
+        return $default;
     }
 
     /**
@@ -79,8 +89,13 @@ class Env
         
         // 同步设置到 PHP 环境变量中
         $envValue = is_bool($value) ? ($value ? 'true' : 'false') : (string)$value;
-        putenv("{$key}={$envValue}");
+        
+        if (function_exists('putenv')) {
+            putenv("{$key}={$envValue}");
+        }
+        
         $_ENV[$key] = $value;
+        $_SERVER[$key] = $value;
     }
 
     /**
@@ -108,8 +123,8 @@ class Env
             return true;
         }
 
-        $systemValue = getenv($key);
-        if (!array_key_exists($key, $this->data) && ($systemValue !== false || array_key_exists($key, $_ENV))) {
+        $systemValue = function_exists('getenv') ? getenv($key) : false;
+        if (!array_key_exists($key, $this->data) && ($systemValue !== false || array_key_exists($key, $_ENV) || array_key_exists($key, $_SERVER))) {
             $this->protectedKeys[$key] = true;
             return true;
         }
