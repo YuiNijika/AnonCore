@@ -33,7 +33,8 @@ class Middleware extends Command
         $className = array_pop($segments);
         $namespace = 'Anon\\Middleware' . ($segments !== [] ? '\\' . implode('\\', $segments) : '');
         $relativePath = ($segments !== [] ? implode('/', $segments) . '/' : '') . $className . '.php';
-        $path = APP_PATH . '/middleware/' . $relativePath;
+        $middlewareDirectory = is_dir(APP_PATH . '/Middleware') ? 'Middleware' : 'middleware';
+        $path = APP_PATH . '/' . $middlewareDirectory . '/' . $relativePath;
 
         if (file_exists($path)) {
             $this->error("Middleware already exists!");
@@ -57,10 +58,10 @@ class {$className}
 {
     public function handle(Request \$request, \Closure \$next): Response
     {
-        // 预处�?        
+        // 预处�?        
         \$response = \$next(\$request);
         
-        // 后处�?        
+        // 后处�?        
         return \$response;
     }
 }

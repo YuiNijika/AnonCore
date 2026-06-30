@@ -376,7 +376,7 @@ class App extends Container
             }
         }
 
-        $routePath = APP_PATH . DIRECTORY_SEPARATOR . 'route';
+        $routePath = $this->resolveAppDirectory(['Route', 'route']);
         if (is_dir($routePath)) {
             $files = glob($routePath . DIRECTORY_SEPARATOR . '*.php');
             if ($files !== false) {
@@ -413,6 +413,23 @@ class App extends Container
     protected function getCacheFile(string $fileName): string
     {
         return $this->basePath . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'cache' . DIRECTORY_SEPARATOR . $fileName;
+    }
+
+    /**
+     * 解析 app 下的目录路径，优先使用大写目录名，兼容旧版小写目录结构。
+     *
+     * @param array<int, string> $candidates
+     */
+    protected function resolveAppDirectory(array $candidates): string
+    {
+        foreach ($candidates as $directory) {
+            $path = APP_PATH . DIRECTORY_SEPARATOR . $directory;
+            if (is_dir($path)) {
+                return $path;
+            }
+        }
+
+        return APP_PATH . DIRECTORY_SEPARATOR . $candidates[0];
     }
 
     /**

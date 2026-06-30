@@ -14,11 +14,10 @@ class Client
     /**
      * @var bool 是否启用 SSL 证书校验，默认 true
      */
-    protected bool $sslVerify = true;
+    protected ?bool $sslVerify = null;
 
     public function __construct()
     {
-        $this->sslVerify = (bool) \Anon\Core\Facade\Config::get('http.ssl_verify', true);
     }
 
     /**
@@ -110,6 +109,8 @@ class Client
             throw new Exception("The 'curl' extension is required for HTTP Client.");
         }
 
+        $sslVerify = $this->sslVerify ?? (bool) \Anon\Core\Facade\Config::get('http.ssl_verify', true);
+
         $ch = curl_init();
         $method = strtoupper($method);
 
@@ -120,9 +121,9 @@ class Client
         curl_setopt($ch, CURLOPT_TIMEOUT, $this->timeout);
 
         // SSL 证书校验配置
-        if (!$this->sslVerify) {
+        if (!$sslVerify) {
             curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
         }
 
         if ($data !== null) {

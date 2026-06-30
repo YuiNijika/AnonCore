@@ -33,7 +33,8 @@ class Provider extends Command
         $className = array_pop($segments);
         $namespace = 'Anon\\Provider' . ($segments !== [] ? '\\' . implode('\\', $segments) : '');
         $relativePath = ($segments !== [] ? implode('/', $segments) . '/' : '') . $className . '.php';
-        $path = APP_PATH . '/provider/' . $relativePath;
+        $providerDirectory = is_dir(APP_PATH . '/Provider') ? 'Provider' : 'provider';
+        $path = APP_PATH . '/' . $providerDirectory . '/' . $relativePath;
 
         if (file_exists($path)) {
             $this->error('Provider already exists!');

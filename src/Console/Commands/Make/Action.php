@@ -33,7 +33,8 @@ class Action extends Command
         $className = array_pop($segments);
         $namespace = 'Anon\\Action' . ($segments !== [] ? '\\' . implode('\\', $segments) : '');
         $relativePath = ($segments !== [] ? implode('/', $segments) . '/' : '') . $className . '.php';
-        $path = APP_PATH . '/action/' . $relativePath;
+        $actionDirectory = is_dir(APP_PATH . '/Action') ? 'Action' : 'action';
+        $path = APP_PATH . '/' . $actionDirectory . '/' . $relativePath;
 
         if (file_exists($path)) {
             $this->error('Action already exists!');

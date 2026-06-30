@@ -37,7 +37,8 @@ class Controller extends Command
         $className = array_pop($segments);
         $namespace = 'Anon\\Controller' . ($segments !== [] ? '\\' . implode('\\', $segments) : '');
         $relativePath = ($segments !== [] ? implode('/', $segments) . '/' : '') . $className . '.php';
-        $path = APP_PATH . '/controller/' . $relativePath;
+        $controllerDirectory = is_dir(APP_PATH . '/Controller') ? 'Controller' : 'controller';
+        $path = APP_PATH . '/' . $controllerDirectory . '/' . $relativePath;
 
         if (file_exists($path)) {
             $this->error("Controller already exists!");

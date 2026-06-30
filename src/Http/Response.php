@@ -40,11 +40,11 @@ class Response
         mixed $data = null,
         string $message = 'OK',
         int $statusCode = 200,
-        string $code = 'OK',
+        int|string|null $code = null,
         array $meta = [],
         array $links = []
     ): self {
-        $payload = self::successEnvelope($data, $message, $code, $meta, $links);
+        $payload = self::successEnvelope($data, $message, $statusCode, $code, $meta, $links);
 
         return new self($payload, $statusCode);
     }
@@ -56,15 +56,21 @@ class Response
         string $message = 'error',
         int $statusCode = 400,
         mixed $errors = null,
-        string $code = 'ERROR',
+        int|string|null $code = null,
         ?string $traceId = null,
         array $debug = []
     ): self {
         $payload = [
             'success' => false,
-            'code' => $code,
+            'code' => $statusCode,
             'message' => $message,
         ];
+
+        if (is_string($code) && $code !== '' && !is_numeric($code)) {
+            $payload['error_code'] = $code;
+        } elseif (is_int($code) || (is_string($code) && is_numeric($code))) {
+            $payload['error_code'] = (int) $code;
+        }
 
         if ($errors !== null && $errors !== []) {
             $payload['errors'] = $errors;
@@ -95,7 +101,8 @@ class Response
     public static function successEnvelope(
         mixed $data = null,
         string $message = 'OK',
-        string $code = 'OK',
+        int $statusCode = 200,
+        int|string|null $code = null,
         array $meta = [],
         array $links = []
     ): array {
@@ -103,10 +110,16 @@ class Response
 
         $payload = [
             'success' => true,
-            'code' => $code,
+            'code' => $statusCode,
             'message' => $message,
             'data' => $resolved['data'],
         ];
+
+        if (is_string($code) && $code !== '' && !is_numeric($code)) {
+            $payload['business_code'] = $code;
+        } elseif (is_int($code) || (is_string($code) && is_numeric($code))) {
+            $payload['business_code'] = (int) $code;
+        }
 
         $meta = array_replace_recursive($resolved['meta'], $meta);
         $links = array_replace_recursive($resolved['links'], $links);
@@ -173,6 +186,28 @@ class Response
     public function withHeader(string $name, string $value): self
     {
         return $this->setHeader($name, $value);
+    }
+
+    /**
+     * 批量追加自定义 HTTP 头
+     *
+     * @param array<string, string|int|float|bool|null> $headers
+     */
+    public function withHeaders(array $headers): self
+    {
+        foreach ($headers as $name => $value) {
+            if (!is_string($name) || $name === '') {
+                continue;
+            }
+
+            if ($value === null) {
+                continue;
+            }
+
+            $this->setHeader($name, (string) $value);
+        }
+
+        return $this;
     }
 
     /**

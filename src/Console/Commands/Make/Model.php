@@ -33,7 +33,8 @@ class Model extends Command
         $className = array_pop($segments);
         $namespace = 'Anon\\Model' . ($segments !== [] ? '\\' . implode('\\', $segments) : '');
         $relativePath = ($segments !== [] ? implode('/', $segments) . '/' : '') . $className . '.php';
-        $path = APP_PATH . '/model/' . $relativePath;
+        $modelDirectory = is_dir(APP_PATH . '/Model') ? 'Model' : 'model';
+        $path = APP_PATH . '/' . $modelDirectory . '/' . $relativePath;
 
         if (file_exists($path)) {
             $this->error("Model already exists!");
