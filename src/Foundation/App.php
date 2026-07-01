@@ -17,7 +17,7 @@ class App extends Container
     /**
      * @var string 框架版本
      */
-    public const VERSION = 'v4.0.0-next-rc';
+    public const VERSION = 'v4.1.0-next-alpha';
 
     /**
      * @var string 框架名称
@@ -158,7 +158,7 @@ class App extends Container
     protected function registerCoreContainerAliases(): void
     {
         $this->bind('router', \Anon\Core\Routing\Router::class);
-        $this->bind('db', \Anon\Core\Database\Connection::class);
+        $this->bind('db', fn () => $this->createDatabaseConnection());
         $this->bind('log', \Anon\Core\Log\Manager::class);
         $this->bind('env', \Anon\Core\Support\Env::class);
         $this->bind('config', \Anon\Core\Support\Config::class);
@@ -438,5 +438,15 @@ class App extends Container
     protected function cacheDisabled(string $key): bool
     {
         return (bool) Env::get($key, false);
+    }
+
+    protected function createDatabaseConnection(): \Anon\Core\Database\Connection
+    {
+        $type = strtolower((string) Config::get('database.type', Env::get('DATABASE_TYPE', 'mysql')));
+
+        return match ($type) {
+            'mongo', 'mongodb' => new \Anon\Core\Database\Mongo\Connection(),
+            default => new \Anon\Core\Database\Connection(),
+        };
     }
 }

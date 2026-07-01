@@ -4,6 +4,9 @@ namespace Anon\Core\Database;
 
 use JsonSerializable;
 use ArrayAccess;
+use Anon\Core\Database\Model\QueryBuilder as ModelQueryBuilder;
+use Anon\Core\Database\Mongo\Connection as MongoConnection;
+use Anon\Core\Database\Mongo\ModelQueryBuilder as MongoModelQueryBuilder;
 use Anon\Core\Support\Str;
 use Anon\Core\Database\Relations\HasOne;
 use Anon\Core\Database\Relations\HasMany;
@@ -21,6 +24,11 @@ abstract class Model implements JsonSerializable, ArrayAccess
      * @var string 主键名
      */
     protected string $primaryKey = 'id';
+
+    /**
+     * @var string|null 自增序列名，主要用于 pgsql / oracle 等驱动
+     */
+    protected ?string $sequence = null;
 
     /**
      * @var bool 是否自动维护时间戳
@@ -222,15 +230,39 @@ abstract class Model implements JsonSerializable, ArrayAccess
         return $this->table;
     }
 
+    public function getKeyName(): string
+    {
+        if ($this->primaryKey === 'id' && $this->usesMongoConnection()) {
+            return '_id';
+        }
+
+        return $this->primaryKey;
+    }
+
+    public function getKey(): mixed
+    {
+        return $this->getAttribute($this->getKeyName());
+    }
+
+    public function getSequenceName(): ?string
+    {
+        return $this->sequence;
+    }
+
     /**
      * 获取查询构建器实例
      */
-    public static function query(): ModelQueryBuilder
+    public static function query(): ModelQueryBuilder|MongoModelQueryBuilder
     {
         $instance = new static;
         $connection = \Anon\Core\Foundation\App::getInstance()->make('db');
-        
-        $builder = new ModelQueryBuilder($connection, static::class);
+
+        if ($connection instanceof MongoConnection) {
+            $builder = new MongoModelQueryBuilder($connection, static::class);
+        } else {
+            $builder = new ModelQueryBuilder($connection, static::class);
+        }
+
         $builder->table($instance->getTable());
         if ($instance->usesSoftDelete()) {
             $builder->enableSoftDelete(static::DELETED_AT);
@@ -245,7 +277,7 @@ abstract class Model implements JsonSerializable, ArrayAccess
     public static function find(mixed $id): ?static
     {
         $instance = new static;
-        return static::query()->where($instance->primaryKey, $id)->first();
+        return static::query()->where($instance->getKeyName(), $id)->first();
     }
 
     /**
@@ -273,7 +305,7 @@ abstract class Model implements JsonSerializable, ArrayAccess
     {
         $ids = is_array($ids) ? $ids : [$ids];
         $instance = new static;
-        return static::query()->whereIn($instance->primaryKey, $ids)->delete();
+        return static::query()->whereIn($instance->getKeyName(), $ids)->delete();
     }
 
     /**
@@ -385,7 +417,7 @@ abstract class Model implements JsonSerializable, ArrayAccess
                 return false;
             }
 
-            $query->where($this->primaryKey, $this->getAttribute($this->primaryKey))
+            $query->where($this->getKeyName(), $this->getKey())
                   ->update($this->attributes);
             
             $saved = true;
@@ -401,14 +433,14 @@ abstract class Model implements JsonSerializable, ArrayAccess
             $id = $query->insert($this->attributes);
             
             // 如果外部已经设置了主键（如 UUID），lastInsertId 可能为空，此时也算成功
-            $pkValue = $this->getAttribute($this->primaryKey);
+            $pkValue = $this->getKey();
             
             if ($pkValue !== null) {
                 $this->exists = true;
                 $saved = true;
                 $this->fireEvent('created');
             } elseif ($id) {
-                $this->setAttribute($this->primaryKey, $id);
+                $this->setAttribute($this->getKeyName(), $id);
                 $this->exists = true;
                 $saved = true;
                 $this->fireEvent('created');
@@ -430,7 +462,7 @@ abstract class Model implements JsonSerializable, ArrayAccess
      */
     public function delete(): bool
     {
-        if (is_null($this->getAttribute($this->primaryKey))) {
+        if ($this->getKey() === null) {
             throw new \Exception('No primary key defined on model.');
         }
 
@@ -445,10 +477,10 @@ abstract class Model implements JsonSerializable, ArrayAccess
                 $this->setAttribute($deletedAt, $time);
                 $deleted = $this->query()
                     ->withTrashed()
-                    ->where($this->primaryKey, $this->getAttribute($this->primaryKey))
+                    ->where($this->getKeyName(), $this->getKey())
                     ->update([$deletedAt => $time]) > 0;
             } else {
-                $deleted = $this->query()->where($this->primaryKey, $this->getAttribute($this->primaryKey))->delete() > 0;
+                $deleted = $this->query()->where($this->getKeyName(), $this->getKey())->delete() > 0;
             }
 
             if ($deleted) {
@@ -465,14 +497,14 @@ abstract class Model implements JsonSerializable, ArrayAccess
      */
     public function forceDelete(): bool
     {
-        if (is_null($this->getAttribute($this->primaryKey))) {
+        if ($this->getKey() === null) {
             throw new \Exception('No primary key defined on model.');
         }
 
         if ($this->exists) {
             return $this->query()
                 ->withTrashed()
-                ->where($this->primaryKey, $this->getAttribute($this->primaryKey))
+                ->where($this->getKeyName(), $this->getKey())
                 ->delete() > 0;
         }
 
@@ -493,7 +525,7 @@ abstract class Model implements JsonSerializable, ArrayAccess
 
         return $this->query()
             ->withTrashed()
-            ->where($this->primaryKey, $this->getAttribute($this->primaryKey))
+            ->where($this->getKeyName(), $this->getKey())
             ->update([$deletedAt => null]) > 0;
     }
 
@@ -514,8 +546,16 @@ abstract class Model implements JsonSerializable, ArrayAccess
      */
     protected function hasOne(string $related, ?string $foreignKey = null, ?string $localKey = null): HasOne
     {
-        $foreignKey = $foreignKey ?: Str::snake($this->getBaseClassName()) . '_' . $this->primaryKey;
-        $localKey = $localKey ?: $this->primaryKey;
+        $foreignKey = $foreignKey ?: Str::snake($this->getBaseClassName()) . '_' . $this->getRelationKeySuffix($this->getKeyName());
+        $localKey = $localKey ?: $this->getKeyName();
+
+        return new HasOne($this, $related, $foreignKey, $localKey);
+    }
+
+    protected function objectIdHasOne(string $related, ?string $foreignKey = null, ?string $localKey = null): HasOne
+    {
+        $foreignKey = $foreignKey ?: Str::snake($this->getBaseClassName()) . '_id';
+        $localKey = $localKey ?: '_id';
 
         return new HasOne($this, $related, $foreignKey, $localKey);
     }
@@ -525,8 +565,16 @@ abstract class Model implements JsonSerializable, ArrayAccess
      */
     protected function hasMany(string $related, ?string $foreignKey = null, ?string $localKey = null): HasMany
     {
-        $foreignKey = $foreignKey ?: Str::snake($this->getBaseClassName()) . '_' . $this->primaryKey;
-        $localKey = $localKey ?: $this->primaryKey;
+        $foreignKey = $foreignKey ?: Str::snake($this->getBaseClassName()) . '_' . $this->getRelationKeySuffix($this->getKeyName());
+        $localKey = $localKey ?: $this->getKeyName();
+
+        return new HasMany($this, $related, $foreignKey, $localKey);
+    }
+
+    protected function objectIdHasMany(string $related, ?string $foreignKey = null, ?string $localKey = null): HasMany
+    {
+        $foreignKey = $foreignKey ?: Str::snake($this->getBaseClassName()) . '_id';
+        $localKey = $localKey ?: '_id';
 
         return new HasMany($this, $related, $foreignKey, $localKey);
     }
@@ -536,8 +584,18 @@ abstract class Model implements JsonSerializable, ArrayAccess
      */
     protected function belongsTo(string $related, ?string $foreignKey = null, ?string $ownerKey = null): BelongsTo
     {
-        $ownerKey = $ownerKey ?: 'id';
-        $foreignKey = $foreignKey ?: Str::snake($this->guessRelationName()) . '_' . $ownerKey;
+        /** @var Model $relatedInstance */
+        $relatedInstance = new $related();
+        $ownerKey = $ownerKey ?: $relatedInstance->getKeyName();
+        $foreignKey = $foreignKey ?: Str::snake($this->guessRelationName()) . '_' . $this->getRelationKeySuffix($ownerKey);
+
+        return new BelongsTo($this, $related, $foreignKey, $ownerKey);
+    }
+
+    protected function objectIdBelongsTo(string $related, ?string $foreignKey = null, ?string $ownerKey = null): BelongsTo
+    {
+        $ownerKey = $ownerKey ?: '_id';
+        $foreignKey = $foreignKey ?: Str::snake($this->guessRelationName()) . '_id';
 
         return new BelongsTo($this, $related, $foreignKey, $ownerKey);
     }
@@ -591,6 +649,28 @@ abstract class Model implements JsonSerializable, ArrayAccess
     {
         $trace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 3);
         return $trace[2]['function'] ?? $this->getBaseClassName();
+    }
+
+    protected function getRelationKeySuffix(string $keyName): string
+    {
+        return ltrim($keyName, '_');
+    }
+
+    protected function usesMongoConnection(): bool
+    {
+        $app = \Anon\Core\Foundation\App::getInstance();
+
+        if (!$app instanceof \Anon\Core\Foundation\App) {
+            return false;
+        }
+
+        try {
+            $connection = $app->make('db');
+        } catch (\Throwable) {
+            return false;
+        }
+
+        return $connection instanceof MongoConnection;
     }
 
     /**

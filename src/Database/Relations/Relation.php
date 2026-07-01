@@ -3,7 +3,10 @@
 namespace Anon\Core\Database\Relations;
 
 use Anon\Core\Database\Model;
-use Anon\Core\Database\ModelQueryBuilder;
+use Anon\Core\Database\Model\QueryBuilder as ModelQueryBuilder;
+use Anon\Core\Database\Mongo\ModelQueryBuilder as MongoModelQueryBuilder;
+use DateTimeInterface;
+use Stringable;
 
 abstract class Relation
 {
@@ -23,7 +26,7 @@ abstract class Relation
      */
     abstract public function eagerLoad(array $models, string $relation): void;
 
-    protected function newQuery(): ModelQueryBuilder
+    protected function newQuery(): ModelQueryBuilder|MongoModelQueryBuilder
     {
         /** @var class-string<Model> $related */
         $related = $this->related;
@@ -34,5 +37,38 @@ abstract class Relation
     {
         $class = $this->related;
         return new $class();
+    }
+
+    protected function normalizeDictionaryKey(mixed $value): int|string|null
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        if (is_int($value) || is_string($value)) {
+            return $value;
+        }
+
+        if (is_bool($value)) {
+            return $value ? '1' : '0';
+        }
+
+        if (is_float($value)) {
+            return (string) $value;
+        }
+
+        if ($value instanceof DateTimeInterface) {
+            return $value->format('Y-m-d H:i:s.u');
+        }
+
+        if ($value instanceof Stringable) {
+            return (string) $value;
+        }
+
+        if (is_object($value) && method_exists($value, '__toString')) {
+            return (string) $value;
+        }
+
+        return null;
     }
 }

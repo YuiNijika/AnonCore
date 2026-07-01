@@ -1,8 +1,12 @@
 <?php
 
-namespace Anon\Core\Database;
+namespace Anon\Core\Database\Model;
 
-class ModelQueryBuilder extends QueryBuilder
+use Anon\Core\Database\Connection;
+use Anon\Core\Database\Model;
+use Anon\Core\Database\QueryBuilder as BaseQueryBuilder;
+
+class QueryBuilder extends BaseQueryBuilder
 {
     /**
      * @var string 模型类名
@@ -154,6 +158,17 @@ class ModelQueryBuilder extends QueryBuilder
         return $result;
     }
 
+    public function insert(array $values): bool|string
+    {
+        $class = $this->modelClass;
+        /** @var Model $model */
+        $model = new $class();
+        $keyName = $model->getKeyName();
+        $sequence = $model->getSequenceName();
+
+        return $this->insertGetId($values, $keyName, $sequence);
+    }
+
     /**
      * 删除数据，启用软删除时默认写入删除时间
      */
@@ -178,7 +193,7 @@ class ModelQueryBuilder extends QueryBuilder
     public function delete(): int
     {
         $this->applySoftDeleteScope();
-        
+
         if ($this->softDeleteEnabled && !$this->includeTrashed && !$this->onlyTrashed) {
             return parent::update([$this->deletedAtColumn => date('Y-m-d H:i:s')]);
         }

@@ -37,12 +37,18 @@ class {$name} extends Migration
 {
     public function up(): void
     {
-        // \$this->statement("CREATE TABLE example (id INT AUTO_INCREMENT PRIMARY KEY)");
+        // \$this->statement("CREATE TABLE example (...)");
+        // MongoDB:
+        // \$this->schema()->create('example', function (\$collection) {
+        //     \$collection->index(['user_id' => 1]);
+        // });
     }
 
     public function down(): void
     {
         // \$this->statement("DROP TABLE example");
+        // MongoDB:
+        // \$this->schema()->dropIfExists('example');
     }
 }
 PHP;

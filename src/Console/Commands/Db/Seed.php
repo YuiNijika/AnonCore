@@ -12,20 +12,23 @@ class Seed extends Command
     public function execute(array $args): int
     {
         $class = $this->getOption($args, 'class', 'DatabaseSeeder');
-        $fullClass = "\\App\\Database\\Seeders\\{$class}";
+        $filePath = APP_PATH . DIRECTORY_SEPARATOR . 'database' . DIRECTORY_SEPARATOR . 'seeders' . DIRECTORY_SEPARATOR . $class . '.php';
 
-        if (!class_exists($fullClass)) {
-            // 尝试去文件里 require
-            $filePath = APP_PATH . DIRECTORY_SEPARATOR . 'database' . DIRECTORY_SEPARATOR . 'seeders' . DIRECTORY_SEPARATOR . $class . '.php';
-            if (file_exists($filePath)) {
-                require_once $filePath;
-            } else {
-                $this->error("Seeder class {$fullClass} not found.");
-                return 1;
-            }
+        if (file_exists($filePath)) {
+            require_once $filePath;
         }
 
-        if (class_exists($fullClass)) {
+        $candidates = [
+            "\\Anon\\Database\\Seeders\\{$class}",
+            "\\App\\Database\\Seeders\\{$class}",
+            $class,
+        ];
+
+        foreach ($candidates as $fullClass) {
+            if (!class_exists($fullClass)) {
+                continue;
+            }
+
             $this->info("Seeding database...");
             $seeder = new $fullClass();
             $seeder->run();
@@ -33,7 +36,7 @@ class Seed extends Command
             return 0;
         }
 
-        $this->error("Seeder class {$fullClass} not found.");
+        $this->error('Seeder class not found. Tried: ' . implode(', ', $candidates));
         return 1;
     }
 }

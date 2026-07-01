@@ -29,7 +29,7 @@ class HasOne extends Relation
     {
         $keys = [];
         foreach ($models as $model) {
-            $value = $model->getAttribute($this->localKey);
+            $value = $this->normalizeDictionaryKey($model->getAttribute($this->localKey));
             if ($value !== null) {
                 $keys[] = $value;
             }
@@ -46,11 +46,15 @@ class HasOne extends Relation
         $results = $this->newQuery()->whereIn($this->foreignKey, $keys)->get();
         $dictionary = [];
         foreach ($results as $result) {
-            $dictionary[$result->getAttribute($this->foreignKey)] = $result;
+            $key = $this->normalizeDictionaryKey($result->getAttribute($this->foreignKey));
+            if ($key !== null) {
+                $dictionary[$key] = $result;
+            }
         }
 
         foreach ($models as $model) {
-            $model->setRelation($relation, $dictionary[$model->getAttribute($this->localKey)] ?? null);
+            $key = $this->normalizeDictionaryKey($model->getAttribute($this->localKey));
+            $model->setRelation($relation, $key !== null ? ($dictionary[$key] ?? null) : null);
         }
     }
 }

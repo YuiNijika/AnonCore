@@ -3,6 +3,7 @@
 namespace Anon\Core\Database\Migration;
 
 use Anon\Core\Facade\DB;
+use Anon\Core\Foundation\App;
 
 abstract class Migration
 {
@@ -21,6 +22,27 @@ abstract class Migration
      */
     protected function statement(string $sql): void
     {
-        DB::execute($sql);
+        DB::statement($sql);
+    }
+
+    protected function schema(): mixed
+    {
+        return DB::schema();
+    }
+
+    protected function connection(): mixed
+    {
+        return App::getInstance()->make('db');
+    }
+
+    protected function mongo(): \Anon\Core\Database\Mongo\Connection
+    {
+        $connection = $this->connection();
+
+        if (!$connection instanceof \Anon\Core\Database\Mongo\Connection) {
+            throw new \RuntimeException('Current database connection is not MongoDB.');
+        }
+
+        return $connection;
     }
 }

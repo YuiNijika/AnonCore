@@ -4,6 +4,7 @@ namespace Anon\Core\Database;
 
 use PDO;
 use PDOException;
+use Throwable;
 use Anon\Core\Facade\Config;
 use Anon\Core\Facade\Env;
 use Anon\Core\Facade\Hook;
@@ -168,6 +169,24 @@ class Connection
     }
 
     /**
+     * 在事务中执行回调，异常时自动回滚
+     */
+    public function transaction(callable $callback): mixed
+    {
+        $this->beginTransaction();
+
+        try {
+            $result = $callback($this);
+            $this->commit();
+
+            return $result;
+        } catch (\Throwable $e) {
+            $this->rollBack();
+            throw $e;
+        }
+    }
+
+    /**
      * 开始查询构造
      * @param string $table 表名
      * @return QueryBuilder
@@ -175,6 +194,11 @@ class Connection
     public function table(string $table): QueryBuilder
     {
         return (new QueryBuilder($this))->table($table);
+    }
+
+    public function schema(): mixed
+    {
+        throw new \RuntimeException('Schema helper is not available for the current database connection.');
     }
 
     /**
@@ -219,12 +243,60 @@ class Connection
         return $affected;
     }
 
+    public function statementReturningValue(
+        string $sql,
+        array $bindings = [],
+        string $outputParameter = ':anon_returning_value',
+        int $length = 4000
+    ): ?string {
+        Hook::trigger('db_query_begin', ['sql' => $sql, 'bindings' => $bindings]);
+        $start = microtime(true);
+
+        $stmt = $this->getPdo()->prepare($sql);
+        foreach (array_values($bindings) as $index => $value) {
+            $stmt->bindValue($index + 1, $value);
+        }
+
+        $returnedValue = null;
+        $stmt->bindParam($outputParameter, $returnedValue, PDO::PARAM_STR | PDO::PARAM_INPUT_OUTPUT, $length);
+        $stmt->execute();
+        $affected = $stmt->rowCount();
+
+        $time = round((microtime(true) - $start) * 1000, 2);
+        Hook::trigger('db_query_end', [
+            'sql' => $sql,
+            'bindings' => $bindings,
+            'time' => $time,
+            'affected' => $affected,
+            'returned' => $returnedValue,
+        ]);
+
+        if ($returnedValue === null || $returnedValue === '') {
+            return null;
+        }
+
+        return (string) $returnedValue;
+    }
+
     /**
      * 获取最后插入的ID
      * @return string
      */
-    public function lastInsertId(): string
+    public function lastInsertId(?string $sequence = null): string
     {
-        return $this->getPdo()->lastInsertId();
+        return $sequence === null || $sequence === ''
+            ? $this->getPdo()->lastInsertId()
+            : $this->getPdo()->lastInsertId($sequence);
+    }
+
+    public function tryLastInsertId(?string $sequence = null): ?string
+    {
+        try {
+            $id = $this->lastInsertId($sequence);
+        } catch (Throwable) {
+            return null;
+        }
+
+        return $id === '' ? null : $id;
     }
 }

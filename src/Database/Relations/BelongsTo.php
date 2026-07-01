@@ -29,7 +29,7 @@ class BelongsTo extends Relation
     {
         $keys = [];
         foreach ($models as $model) {
-            $value = $model->getAttribute($this->foreignKey);
+            $value = $this->normalizeDictionaryKey($model->getAttribute($this->foreignKey));
             if ($value !== null) {
                 $keys[] = $value;
             }
@@ -46,11 +46,15 @@ class BelongsTo extends Relation
         $results = $this->newQuery()->whereIn($this->ownerKey, $keys)->get();
         $dictionary = [];
         foreach ($results as $result) {
-            $dictionary[$result->getAttribute($this->ownerKey)] = $result;
+            $key = $this->normalizeDictionaryKey($result->getAttribute($this->ownerKey));
+            if ($key !== null) {
+                $dictionary[$key] = $result;
+            }
         }
 
         foreach ($models as $model) {
-            $model->setRelation($relation, $dictionary[$model->getAttribute($this->foreignKey)] ?? null);
+            $key = $this->normalizeDictionaryKey($model->getAttribute($this->foreignKey));
+            $model->setRelation($relation, $key !== null ? ($dictionary[$key] ?? null) : null);
         }
     }
 }

@@ -29,7 +29,7 @@ class Seeder extends Command
         $template = <<<PHP
 <?php
 
-namespace App\Database\Seeders;
+namespace Anon\Database\Seeders;
 
 use Anon\Core\Database\Migration\Seeder;
 use Anon\Core\Facade\DB;
