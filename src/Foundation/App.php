@@ -101,7 +101,7 @@ class App extends Container
         set_error_handler([$this, 'handleError']);
 
         // 加载默认系统钩子
-        $hookFile = APP_PATH . DIRECTORY_SEPARATOR . 'hook.php';
+        $hookFile = APP_PATH . DIRECTORY_SEPARATOR . 'Hook.php';
         if (file_exists($hookFile)) {
             require $hookFile;
         }
