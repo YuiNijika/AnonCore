@@ -25,7 +25,7 @@ class Client
      */
     public function timeout(int $seconds): self
     {
-        $this->timeout = max(1, $seconds);
+        $this->timeout = max(0, $seconds);
         return $this;
     }
 
@@ -94,8 +94,92 @@ class Client
     }
 
     /**
-     * 发送 HTTP 请求
+     * 发送 HEAD 请求
      *
+     * @param string $url
+     * @param array $headers
+     * @return array
+     */
+    public function head(string $url, array $headers = []): array
+    {
+        if (!extension_loaded('curl')) {
+            throw new Exception("The 'curl' extension is required for HTTP Client.");
+        }
+
+        $sslVerify = $this->sslVerify ?? (bool) \Anon\Core\Facade\Config::get('http.ssl_verify', true);
+
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $url);
+        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'HEAD');
+        curl_setopt($ch, CURLOPT_NOBODY, true);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_HEADER, true);
+        curl_setopt($ch, CURLOPT_TIMEOUT, $this->timeout);
+
+        if (!$sslVerify) {
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
+        }
+
+        if (!empty($headers)) {
+            $formattedHeaders = [];
+            foreach ($headers as $key => $value) {
+                if (is_numeric($key)) {
+                    $formattedHeaders[] = $value;
+                } else {
+                    $formattedHeaders[] = "{$key}: {$value}";
+                }
+            }
+            curl_setopt($ch, CURLOPT_HTTPHEADER, $formattedHeaders);
+        }
+
+        $response = curl_exec($ch);
+        $error = curl_error($ch);
+        $statusCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $headerSize = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
+
+        curl_close($ch);
+
+        if ($response === false) {
+            throw new Exception("HTTP Client Error: {$error}");
+        }
+
+        $responseHeadersStr = substr($response, 0, $headerSize);
+
+        return [
+            'status' => $statusCode,
+            'headers' => $this->parseHeaders($responseHeadersStr),
+            'body' => '',
+            'json' => null,
+        ];
+    }
+
+    /**
+     * 发送 PATCH 请求
+     *
+     * @param string $url
+     * @param mixed $data
+     * @param array $headers
+     * @return array
+     */
+    public function patch(string $url, mixed $data = [], array $headers = []): array
+    {
+        return $this->request('PATCH', $url, $data, $headers);
+    }
+
+    /**
+     * 发送 OPTIONS 请求
+     *
+     * @param string $url
+     * @param array $headers
+     * @return array
+     */
+    public function options(string $url, array $headers = []): array
+    {
+        return $this->request('OPTIONS', $url, null, $headers);
+    }
+
+    /**
      * @param string $method
      * @param string $url
      * @param mixed $data

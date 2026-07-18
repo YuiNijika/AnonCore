@@ -39,11 +39,28 @@ use Anon\Core\Http\Request;
 class {$name} extends Json
 {
     /**
+     * Return the OpenAPI schema for this resource.
+     *
+     * @return array<string, mixed>
+     */
+    public static function schema(): array
+    {
+        return [
+            'type' => 'object',
+            'properties' => [
+                // 'id' => ['type' => 'integer'],
+            ],
+        ];
+    }
+
+    /**
      * Transform the resource into an array.
      */
     public function toArray(Request \$request): array
     {
-        return parent::toArray(\$request);
+        return [
+            // 'id' => \$this->id,
+        ];
     }
 }
 EOF;

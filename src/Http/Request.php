@@ -2,6 +2,8 @@
 
 namespace Anon\Core\Http;
 
+use Anon\Core\Routing\RouteItem;
+
 class Request
 {
     /**
@@ -35,6 +37,11 @@ class Request
     protected array $routeParams = [];
 
     /**
+     * @var RouteItem|null 当前命中的路由
+     */
+    protected ?RouteItem $matchedRoute = null;
+
+    /**
      * @var array 存放解析后的 UploadedFile 对象
      */
     protected array $files = [];
@@ -61,6 +68,7 @@ class Request
         $this->body = $request->body;
         $this->files = $request->file();
         $this->routeParams = $request->getRouteParams();
+        $this->matchedRoute = $request->matchedRoute();
         
         return $this;
     }
@@ -356,6 +364,18 @@ class Request
     public function getRouteParams(): array
     {
         return $this->routeParams;
+    }
+
+    public function setMatchedRoute(?RouteItem $route): self
+    {
+        $this->matchedRoute = $route;
+
+        return $this;
+    }
+
+    public function matchedRoute(): ?RouteItem
+    {
+        return $this->matchedRoute;
     }
 
     /**

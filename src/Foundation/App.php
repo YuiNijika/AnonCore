@@ -6,11 +6,11 @@ use Throwable;
 use Anon\Core\Http\Request;
 use Anon\Core\Http\Response;
 use Anon\Core\Facade\Route;
-use Anon\Core\Facade\Log;
 use Anon\Core\Facade\Env;
 use Anon\Core\Facade\Config;
 use Anon\Core\Facade\Hook;
 use Anon\Core\Container\Container;
+use Anon\Core\Exception\Handler as ExceptionHandler;
 
 class App extends Container
 {
@@ -299,43 +299,7 @@ class App extends Container
      */
     public function handleException(\Throwable $e): void
     {
-        // 记录错误日志，将上下文合并到消息中
-        $errorMsg = $e->getMessage() . "\n" . json_encode([
-            'file' => $e->getFile(),
-            'line' => $e->getLine(),
-            'trace' => $e->getTraceAsString(),
-        ]);
-        Log::error($errorMsg, 'exception');
-
-        $code = 500;
-        $message = $e->getMessage();
-        $data = null;
-
-        // 如果是 HTTP 异常，提取状态码和数据
-        if ($e instanceof \Anon\Core\Exception\Http) {
-            $code = $e->getStatusCode();
-            $data = $e->getData();
-        } else {
-            // 在非调试模式下，隐藏真实错误信息
-            if (!Config::get('app.debug', Env::get('DEBUG_MODE', Env::get('APP_DEBUG', false)))) {
-                $message = 'Internal Server Error';
-            } else {
-                $data = [
-                    'file' => $e->getFile(),
-                    'line' => $e->getLine(),
-                    'trace' => $e->getTrace(),
-                ];
-            }
-        }
-
-        // 返回 JSON 格式错误
-        $response = Response::json([
-            'code' => $code,
-            'message' => $message,
-            'data' => $data,
-        ], $code);
-
-        $response->send();
+        (new ExceptionHandler())->render($e);
     }
 
     /**

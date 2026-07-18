@@ -41,30 +41,58 @@ class Cors
      */
     public function handle(Request $request, callable $next): Response
     {
+        $origin = $request->header('Origin');
+
+        // OPTIONS 预检请求直接短路，不走路由
+        if ($request->method() === 'OPTIONS' && $origin && $this->isOriginAllowed($origin)) {
+            return $this->preflightResponse($origin);
+        }
+
         /** @var Response $response */
         $response = $next($request);
 
-        $origin = $request->header('Origin');
-
-        // 如果配置了具体的 Origin，或者允许所有 (*)
-        if ($origin && (in_array('*', $this->allowedOrigins) || in_array($origin, $this->allowedOrigins))) {
-            $allowedOrigin = in_array('*', $this->allowedOrigins) ? '*' : $origin;
-            
-            // 响应头设置
-            $response->header('Access-Control-Allow-Origin', $allowedOrigin);
-            $response->header('Access-Control-Allow-Methods', implode(', ', $this->allowedMethods));
-            $response->header('Access-Control-Allow-Headers', implode(', ', $this->allowedHeaders));
-            
-            if ($this->allowCredentials) {
-                // Access-Control-Allow-Origin 不能为 * 当 allowCredentials 为 true 时
-                // 所以我们强制设为具体的 origin
-                $response->header('Access-Control-Allow-Origin', $origin);
-                $response->header('Access-Control-Allow-Credentials', 'true');
-            }
-            
-            $response->header('Access-Control-Max-Age', (string)$this->maxAge);
+        if ($origin && $this->isOriginAllowed($origin)) {
+            $this->applyCorsHeaders($response, $origin);
         }
 
         return $response;
+    }
+
+    /**
+     * 判断指定 origin 是否在白名单中（* 表示允许所有）。
+     */
+    private function isOriginAllowed(string $origin): bool
+    {
+        return in_array('*', $this->allowedOrigins) || in_array($origin, $this->allowedOrigins);
+    }
+
+    /**
+     * 生成 OPTIONS 预检响应（204 No Content + 全套 CORS 头）。
+     */
+    private function preflightResponse(string $origin): Response
+    {
+        $response = new Response('', 204);
+        $this->applyCorsHeaders($response, $origin);
+
+        return $response;
+    }
+
+    /**
+     * 向 Response 写入 CORS 响应头。
+     */
+    private function applyCorsHeaders(Response $response, string $origin): void
+    {
+        // credentials 模式下不能用 *，须用具体 origin
+        $allowedOrigin = $this->allowCredentials ? $origin : (in_array('*', $this->allowedOrigins) ? '*' : $origin);
+
+        $response->header('Access-Control-Allow-Origin', $allowedOrigin);
+        $response->header('Access-Control-Allow-Methods', implode(', ', $this->allowedMethods));
+        $response->header('Access-Control-Allow-Headers', implode(', ', $this->allowedHeaders));
+
+        if ($this->allowCredentials) {
+            $response->header('Access-Control-Allow-Credentials', 'true');
+        }
+
+        $response->header('Access-Control-Max-Age', (string) $this->maxAge);
     }
 }

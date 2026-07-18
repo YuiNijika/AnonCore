@@ -57,11 +57,17 @@ use Anon\Core\Http\Request;
 
 class {$className} extends Action
 {
+    /**
+     * This value will be exposed as business_code in the success envelope.
+     */
     public function code(mixed \$result = null, ?Request \$request = null): string
     {
         return 'ACTION_OK';
     }
 
+    /**
+     * Human-readable success message.
+     */
     public function message(mixed \$result = null, ?Request \$request = null): string
     {
         return 'Action executed.';

@@ -55,6 +55,34 @@ abstract class Json implements JsonSerializable
     }
 
     /**
+     * 返回当前 Resource 对应的 OpenAPI schema。
+     *
+     * 默认给出一个保守的 object schema，业务 Resource 可按需覆盖。
+     *
+     * @return array<string, mixed>
+     */
+    public static function schema(): array
+    {
+        return [
+            'type' => 'object',
+            'additionalProperties' => true,
+        ];
+    }
+
+    /**
+     * 返回集合场景下的 OpenAPI data schema。
+     *
+     * @return array<string, mixed>
+     */
+    public static function collectionSchema(): array
+    {
+        return [
+            'type' => 'array',
+            'items' => static::schema(),
+        ];
+    }
+
+    /**
      * 将资源转换为数组
      */
     abstract public function toArray(Request $request): array;

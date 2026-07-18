@@ -7,7 +7,10 @@ use Anon\Core\Facade\Config;
 use Anon\Core\Facade\Log;
 use Anon\Core\Facade\Env;
 use Anon\Core\Facade\Hook;
+use Anon\Core\Foundation\App;
+use Anon\Core\Http\Request;
 use Anon\Core\Http\Response;
+use Anon\Core\Routing\Router;
 
 class Handler
 {
@@ -68,13 +71,50 @@ class Handler
 
         foreach ($hookResponses as $hookResponse) {
             if ($hookResponse instanceof Response) {
-                $hookResponse->send();
+                $this->sendResponse($hookResponse);
                 exit(1);
             }
         }
 
-        Response::error($message, $statusCode, $errors, $errorCode, $traceId, $debug)->send();
+        $this->sendResponse(
+            Response::error($message, $statusCode, $errors, $errorCode, $traceId, $debug)
+        );
         exit(1);
+    }
+
+    protected function sendResponse(Response $response): void
+    {
+        $this->finalizeResponse($response)->send();
+    }
+
+    protected function finalizeResponse(Response $response): Response
+    {
+        $app = App::getInstance();
+        if (!$app instanceof App) {
+            return $response;
+        }
+
+        try {
+            $request = $app->make(Request::class);
+        } catch (Throwable) {
+            return $response;
+        }
+
+        if (!$request instanceof Request || !$request->matchedRoute()) {
+            return $response;
+        }
+
+        try {
+            $router = $app->make('router');
+        } catch (Throwable) {
+            return $response;
+        }
+
+        if (!$router instanceof Router) {
+            return $response;
+        }
+
+        return $router->applyRouteResponseControlsToResponse($request->matchedRoute(), $request, $response);
     }
 
     /**

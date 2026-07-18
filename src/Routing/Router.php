@@ -86,9 +86,11 @@ class Router
      */
     public function any(string $uri, mixed $action): void
     {
+        $pendingControls = $this->consumePendingRouteControls();
         $methods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'];
         foreach ($methods as $method) {
-            $this->addRoute($method, $uri, $action);
+            $routeItem = $this->addRoute($method, $uri, $action);
+            $this->applyRouteControlsToItem($routeItem, $pendingControls);
         }
     }
 
@@ -106,6 +108,7 @@ class Router
      */
     public function resource(string $uri, mixed $controller, array $options = []): array
     {
+        $pendingControls = $this->consumePendingRouteControls();
         $uri = '/' . trim($uri, '/');
         $param = $this->resolveResourceParam($options);
         $detailUri = rtrim($uri, '/') . '/{' . $param . '}';
@@ -126,10 +129,13 @@ class Router
                 continue;
             }
 
-            $routes[] = $this->{$definition['method']}(
+            $routeItem = $this->{$definition['method']}(
                 $definition['uri'],
                 $this->buildControllerAction($controller, $definition['action'])
             );
+
+            $this->applyRouteControlsToItem($routeItem, $pendingControls);
+            $routes[] = $routeItem;
         }
 
         return $routes;
@@ -146,6 +152,16 @@ class Router
     protected array $groupMiddlewareStack = [];
 
     /**
+     * @var array<int, array<string, string>> 当前正在解析的路由组响应头堆栈
+     */
+    protected array $groupResponseHeaderStack = [];
+
+    /**
+     * @var array<int, array<string, mixed>> 当前正在解析的路由组 CORS 配置堆栈
+     */
+    protected array $groupCorsStack = [];
+
+    /**
      * @var array 暂存通过 middleware() 链式调用传入的前置中间件堆栈
      */
     protected array $pendingMiddlewareStack = [];
@@ -156,9 +172,29 @@ class Router
     protected array $pendingPrefixStack = [];
 
     /**
+     * @var array<string, string> 暂存通过链式调用传入的前置响应头
+     */
+    protected array $pendingResponseHeaders = [];
+
+    /**
+     * @var array<string, mixed> 暂存通过链式调用传入的前置 CORS 配置
+     */
+    protected array $pendingCors = [];
+
+    /**
      * @var array<string, callable|array{class: string, key: string}>
      */
     protected array $bindings = [];
+
+    /**
+     * @var array<string, string> 当前路由组继承下来的响应头
+     */
+    protected array $groupResponseHeaders = [];
+
+    /**
+     * @var array<string, mixed> 当前路由组继承下来的 CORS 配置
+     */
+    protected array $groupCors = [];
 
     /**
      * @var RouteItem[] 暂存刚注册的单个路由, 用于后置链式调用
@@ -187,6 +223,16 @@ class Router
     public function getRoutes(): array
     {
         return $this->routes;
+    }
+
+    /**
+     * 获取当前注册的路由参数绑定。
+     *
+     * @return array<string, callable|array{class: string, key: string}>
+     */
+    public function getBindings(): array
+    {
+        return $this->bindings;
     }
 
     /**
@@ -415,6 +461,75 @@ class Router
         return $this;
     }
 
+    public function responseHeader(string $name, int|string|float|bool|null $value): self
+    {
+        $this->applyPendingRouteControl('responseHeader', [$name, $value]);
+
+        return $this;
+    }
+
+    /**
+     * @param array<string, int|string|float|bool|null> $headers
+     */
+    public function responseHeaders(array $headers): self
+    {
+        $this->applyPendingRouteControl('responseHeaders', [$headers]);
+
+        return $this;
+    }
+
+    public function allowHeaders(string|array $headers): self
+    {
+        $this->applyPendingRouteControl('allowHeaders', [$headers]);
+
+        return $this;
+    }
+
+    public function exposeHeaders(string|array $headers): self
+    {
+        $this->applyPendingRouteControl('exposeHeaders', [$headers]);
+
+        return $this;
+    }
+
+    public function allowOrigin(string|array $origins = '*'): self
+    {
+        $this->applyPendingRouteControl('allowOrigin', [$origins]);
+
+        return $this;
+    }
+
+    public function allowMethods(string|array $methods): self
+    {
+        $this->applyPendingRouteControl('allowMethods', [$methods]);
+
+        return $this;
+    }
+
+    public function allowCredentials(bool $allow = true): self
+    {
+        $this->applyPendingRouteControl('allowCredentials', [$allow]);
+
+        return $this;
+    }
+
+    public function maxAge(int $seconds): self
+    {
+        $this->applyPendingRouteControl('maxAge', [$seconds]);
+
+        return $this;
+    }
+
+    /**
+     * @param array<string, mixed> $options
+     */
+    public function cors(array $options): self
+    {
+        $this->applyPendingRouteControl('cors', [$options]);
+
+        return $this;
+    }
+
     /**
      * 按 API 版本创建分组前缀，例如 v1 -> /api/v1。
      */
@@ -476,6 +591,7 @@ class Router
     {
         // 组调用开始前，清空暂存的单个路由记录，防止交叉污染
         $this->lastRouteItems = [];
+        $pendingControls = $this->consumePendingRouteControls();
 
         if (is_string($attributes)) {
             $attributes = ['prefix' => $attributes];
@@ -484,6 +600,10 @@ class Router
         // 解析并入栈
         $prefix = $attributes['prefix'] ?? '';
         $middleware = $attributes['middleware'] ?? [];
+        $groupResponseHeaders = is_array($attributes['response_headers'] ?? null)
+            ? $attributes['response_headers']
+            : (is_array($attributes['headers'] ?? null) ? $attributes['headers'] : []);
+        $groupCors = is_array($attributes['cors'] ?? null) ? $attributes['cors'] : [];
         if (is_string($middleware)) {
             $middleware = [$middleware];
         }
@@ -502,6 +622,8 @@ class Router
         // 入栈当前状态
         array_push($this->groupPrefixStack, $this->groupPrefix);
         array_push($this->groupMiddlewareStack, $this->groupMiddlewares);
+        array_push($this->groupResponseHeaderStack, $this->groupResponseHeaders);
+        array_push($this->groupCorsStack, $this->groupCors);
 
         // 更新当前上下文
         $this->groupPrefix = $this->groupPrefix . '/' . trim($prefix, '/');
@@ -509,6 +631,21 @@ class Router
             $this->groupPrefix = '';
         }
         $this->groupMiddlewares = array_merge($this->groupMiddlewares, $middleware);
+        $groupControls = $this->combineRouteControls(
+            $this->groupResponseHeaders,
+            $this->groupCors,
+            [
+                'response_headers' => $groupResponseHeaders,
+                'cors' => $groupCors,
+            ]
+        );
+        $groupControls = $this->combineRouteControls(
+            $groupControls['response_headers'],
+            $groupControls['cors'],
+            $pendingControls
+        );
+        $this->groupResponseHeaders = $groupControls['response_headers'];
+        $this->groupCors = $groupControls['cors'];
 
         // 触发闭包注册组内路由
         call_user_func($callback, $this);
@@ -519,6 +656,8 @@ class Router
         // 出栈恢复上级状态
         $this->groupPrefix = array_pop($this->groupPrefixStack);
         $this->groupMiddlewares = array_pop($this->groupMiddlewareStack);
+        $this->groupResponseHeaders = array_pop($this->groupResponseHeaderStack);
+        $this->groupCors = array_pop($this->groupCorsStack);
 
         return $this;
     }
@@ -551,12 +690,110 @@ class Router
             $routeItem->middleware($this->groupMiddlewares);
         }
 
+        $routeControls = $this->combineRouteControls(
+            $this->groupResponseHeaders,
+            $this->groupCors,
+            $this->consumePendingRouteControls()
+        );
+        $this->applyRouteControlsToItem($routeItem, $routeControls);
+
         $this->routes[$method][$uri] = $routeItem;
         
         // 暂存最后一次注册的路由，供后置 middleware 调用
         $this->lastRouteItems[] = $routeItem;
         
         return $routeItem;
+    }
+
+    /**
+     * @param array<int, mixed> $args
+     */
+    protected function applyPendingRouteControl(string $method, array $args): void
+    {
+        $controls = $this->mutateRouteControls(
+            $this->pendingResponseHeaders,
+            $this->pendingCors,
+            $method,
+            $args
+        );
+
+        $this->pendingResponseHeaders = $controls['response_headers'];
+        $this->pendingCors = $controls['cors'];
+    }
+
+    /**
+     * @return array{response_headers: array<string, string>, cors: array<string, mixed>}
+     */
+    protected function consumePendingRouteControls(): array
+    {
+        $controls = [
+            'response_headers' => $this->pendingResponseHeaders,
+            'cors' => $this->pendingCors,
+        ];
+
+        $this->pendingResponseHeaders = [];
+        $this->pendingCors = [];
+
+        return $controls;
+    }
+
+    /**
+     * @param array<string, string> $responseHeaders
+     * @param array<string, mixed> $cors
+     * @param array{response_headers?: array<string, string>, cors?: array<string, mixed>} $controls
+     * @return array{response_headers: array<string, string>, cors: array<string, mixed>}
+     */
+    protected function combineRouteControls(array $responseHeaders, array $cors, array $controls): array
+    {
+        $item = new RouteItem('GET', '/', '__route_controls__');
+        $item->responseHeaders = $responseHeaders;
+        $item->cors = $cors;
+
+        if (($controls['response_headers'] ?? []) !== []) {
+            $item->responseHeaders($controls['response_headers']);
+        }
+
+        if (($controls['cors'] ?? []) !== []) {
+            $item->cors($controls['cors']);
+        }
+
+        return [
+            'response_headers' => $item->responseHeaders,
+            'cors' => $item->cors,
+        ];
+    }
+
+    /**
+     * @param array<string, string> $responseHeaders
+     * @param array<string, mixed> $cors
+     * @param array<int, mixed> $args
+     * @return array{response_headers: array<string, string>, cors: array<string, mixed>}
+     */
+    protected function mutateRouteControls(array $responseHeaders, array $cors, string $method, array $args): array
+    {
+        $item = new RouteItem('GET', '/', '__route_controls__');
+        $item->responseHeaders = $responseHeaders;
+        $item->cors = $cors;
+        $item->{$method}(...$args);
+
+        return [
+            'response_headers' => $item->responseHeaders,
+            'cors' => $item->cors,
+        ];
+    }
+
+    /**
+     * @param array{response_headers?: array<string, string>, cors?: array<string, mixed>} $controls
+     */
+    protected function applyRouteControlsToItem(RouteItem $routeItem, array $controls): void
+    {
+        if (($controls['response_headers'] ?? []) !== []) {
+            $routeItem->responseHeaders($controls['response_headers']);
+        }
+
+        if (($controls['cors'] ?? []) !== []) {
+            $routeItem->cors($controls['cors']);
+        }
     }
 
     /**
@@ -678,6 +915,17 @@ class Router
         // 处理跨域预检请求的快捷放行 (如果开启了全局CORS但没显式注册OPTIONS路由)
         if ($method === 'OPTIONS') {
             if (!isset($this->routes['OPTIONS'][$uri])) {
+                $preflightRoute = $this->resolvePreflightRoute($uri, $request);
+                if ($preflightRoute instanceof RouteItem) {
+                    $request->setMatchedRoute($preflightRoute);
+
+                    return $this->applyRouteResponseControlsToResponse(
+                        $preflightRoute,
+                        $request,
+                        Response::json([], 204)
+                    );
+                }
+
                 return Response::json([], 204);
             }
         }
@@ -685,6 +933,7 @@ class Router
         // 查找精确匹配的路由
         if (isset($this->routes[$method][$uri])) {
             $routeItem = $this->routes[$method][$uri];
+            $request->setMatchedRoute($routeItem);
             return $this->runRouteThroughMiddleware($routeItem, $request);
         }
 
@@ -696,6 +945,7 @@ class Router
                         // 提取命名参数
                         $params = array_filter($matches, 'is_string', ARRAY_FILTER_USE_KEY);
                         $request->setRouteParams($this->resolveRouteBindings($params, $request));
+                        $request->setMatchedRoute($routeItem);
                         return $this->runRouteThroughMiddleware($routeItem, $request);
                     }
                 }
@@ -775,7 +1025,209 @@ class Router
             return $this->runAction($action, $req);
         };
 
-        return $this->runMiddlewareStack($routeItem->middlewares, $request, $next);
+        $response = $this->runMiddlewareStack($routeItem->middlewares, $request, $next);
+
+        return $this->applyRouteResponseControlsToResponse($routeItem, $request, $response);
+    }
+
+    public function applyRouteResponseControlsToResponse(RouteItem $routeItem, Request $request, Response $response): Response
+    {
+        if ($routeItem->responseHeaders !== []) {
+            $response->withHeaders($routeItem->responseHeaders);
+        }
+
+        if ($routeItem->cors !== []) {
+            $this->applyRouteCorsHeaders($routeItem, $request, $response);
+        }
+
+        return $response;
+    }
+
+    protected function applyRouteCorsHeaders(RouteItem $routeItem, Request $request, Response $response): void
+    {
+        $allowOrigin = $this->resolveCorsAllowOrigin($routeItem, $request);
+        if ($allowOrigin === null) {
+            return;
+        }
+
+        $response->withHeader('Vary', 'Origin, Access-Control-Request-Method, Access-Control-Request-Headers');
+        $response->withHeader('Access-Control-Allow-Origin', $allowOrigin);
+        $response->withHeader('Access-Control-Allow-Methods', implode(', ', $this->resolveCorsAllowedMethods($routeItem)));
+
+        $allowHeaders = $this->resolveCorsAllowedHeaders($routeItem, $request);
+        if ($allowHeaders !== []) {
+            $response->withHeader('Access-Control-Allow-Headers', implode(', ', $allowHeaders));
+        }
+
+        $exposeHeaders = $this->resolveCorsExposedHeaders($routeItem);
+        if ($exposeHeaders !== []) {
+            $response->withHeader('Access-Control-Expose-Headers', implode(', ', $exposeHeaders));
+        }
+
+        if ($this->routeAllowsCredentials($routeItem)) {
+            $response->withHeader('Access-Control-Allow-Credentials', 'true');
+        }
+
+        $response->withHeader('Access-Control-Max-Age', (string) $this->resolveCorsMaxAge($routeItem));
+    }
+
+    /**
+     * 为无显式 OPTIONS 路由的预检请求选择目标路由
+     */
+    protected function resolvePreflightRoute(string $uri, Request $request): ?RouteItem
+    {
+        $requestedMethod = strtoupper(trim((string) $request->header('Access-Control-Request-Method', '')));
+        if ($requestedMethod !== '' && $requestedMethod !== 'OPTIONS') {
+            $matched = $this->matchRouteForMethod($requestedMethod, $uri, $request);
+            if ($matched instanceof RouteItem) {
+                return $matched;
+            }
+        }
+
+        foreach (array_keys($this->routes) as $method) {
+            if ($method === 'OPTIONS') {
+                continue;
+            }
+
+            $matched = $this->matchRouteForMethod((string) $method, $uri, $request);
+            if ($matched instanceof RouteItem) {
+                return $matched;
+            }
+        }
+
+        return null;
+    }
+
+    protected function matchRouteForMethod(string $method, string $uri, Request $request): ?RouteItem
+    {
+        if (isset($this->routes[$method][$uri])) {
+            return $this->routes[$method][$uri];
+        }
+
+        if (!isset($this->routes[$method])) {
+            return null;
+        }
+
+        foreach ($this->routes[$method] as $routeItem) {
+            if (!$routeItem instanceof RouteItem || $routeItem->pattern === null) {
+                continue;
+            }
+
+            if (preg_match($routeItem->pattern, $uri, $matches)) {
+                $params = array_filter($matches, 'is_string', ARRAY_FILTER_USE_KEY);
+                $request->setRouteParams($this->resolveRouteBindings($params, $request));
+
+                return $routeItem;
+            }
+        }
+
+        return null;
+    }
+
+    protected function resolveCorsAllowOrigin(RouteItem $routeItem, Request $request): ?string
+    {
+        $allowedOrigins = is_array($routeItem->cors['allow_origins'] ?? null)
+            ? $routeItem->cors['allow_origins']
+            : ['*'];
+        $origin = trim((string) $request->header('Origin', ''));
+
+        if ($origin === '') {
+            return in_array('*', $allowedOrigins, true) ? '*' : null;
+        }
+
+        if (in_array('*', $allowedOrigins, true)) {
+            return $this->routeAllowsCredentials($routeItem) ? $origin : '*';
+        }
+
+        return in_array($origin, $allowedOrigins, true) ? $origin : null;
+    }
+
+    /**
+     * @return string[]
+     */
+    protected function resolveCorsAllowedMethods(RouteItem $routeItem): array
+    {
+        $methods = is_array($routeItem->cors['allow_methods'] ?? null)
+            ? $routeItem->cors['allow_methods']
+            : [$routeItem->method, 'OPTIONS'];
+
+        return array_values(array_unique(array_map('strtoupper', array_filter(array_map('strval', $methods)))));
+    }
+
+    /**
+     * @return string[]
+     */
+    protected function resolveCorsAllowedHeaders(RouteItem $routeItem, Request $request): array
+    {
+        $headers = is_array($routeItem->cors['allow_headers'] ?? null)
+            ? $routeItem->cors['allow_headers']
+            : [];
+
+        foreach ($routeItem->parameters as $parameter) {
+            if (($parameter['in'] ?? null) !== 'header') {
+                continue;
+            }
+
+            $name = trim((string) ($parameter['name'] ?? ''));
+            if ($name !== '') {
+                $headers[] = $name;
+            }
+        }
+
+        if ($headers === []) {
+            $requested = trim((string) $request->header('Access-Control-Request-Headers', ''));
+            if ($requested !== '') {
+                $headers = array_map('trim', explode(',', $requested));
+            }
+        }
+
+        return $this->normalizeHeaderTokens($headers);
+    }
+
+    /**
+     * @return string[]
+     */
+    protected function resolveCorsExposedHeaders(RouteItem $routeItem): array
+    {
+        $headers = is_array($routeItem->cors['expose_headers'] ?? null)
+            ? $routeItem->cors['expose_headers']
+            : [];
+
+        return $this->normalizeHeaderTokens($headers);
+    }
+
+    protected function routeAllowsCredentials(RouteItem $routeItem): bool
+    {
+        if (array_key_exists('allow_credentials', $routeItem->cors)) {
+            return (bool) $routeItem->cors['allow_credentials'];
+        }
+
+        return true;
+    }
+
+    protected function resolveCorsMaxAge(RouteItem $routeItem): int
+    {
+        return max(0, (int) ($routeItem->cors['max_age'] ?? 86400));
+    }
+
+    /**
+     * @param array<int, mixed> $headers
+     * @return string[]
+     */
+    protected function normalizeHeaderTokens(array $headers): array
+    {
+        $normalized = [];
+
+        foreach ($headers as $header) {
+            $header = trim((string) $header);
+            if ($header === '') {
+                continue;
+            }
+
+            $normalized[] = $header;
+        }
+
+        return array_values(array_unique($normalized));
     }
 
     /**

@@ -85,6 +85,14 @@ abstract class Command
     }
 
     /**
+     * 判断指定布尔选项是否存在，例如 --json
+     */
+    protected function hasOption(array $args, string $name): bool
+    {
+        return in_array("--{$name}", $args, true);
+    }
+
+    /**
      * 在控制台输出表格
      *
      * @param array $headers 表头数组
