@@ -27,6 +27,7 @@ class Application
     {
         $this->add(new Commands\Server\Dev());
         $this->add(new Commands\Server\Run());
+        $this->add(new Commands\Server\WebSocket());
         $this->add(new Commands\Config\Cache());
         $this->add(new Commands\Config\Clear());
         $this->add(new Commands\Route\Cache());

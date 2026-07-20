@@ -9,6 +9,8 @@
 - **依赖注入容器**：自动解析类依赖，支持单例与实例绑定。
 - **JWT 无状态认证**：提供 JSON Web Token 签发与验证，支持多端多密钥隔离，适配 API 场景。
 - **结构化配置**：支持通过项目根目录下的 `anon.config.php` 管理应用配置，并兼容 `.env` 作为敏感值来源。
+- **SSE**：`Response::sse()` + `Http\Sse` 工具，适合 AI token 流 / 进度推送。
+- **WebSocket**：独立进程 `php anon ws`，RFC6455 握手与路由（`websocket.php`）。
 
 ## 环境要求
 

@@ -26,11 +26,39 @@ class Response
      */
     protected array $cookies = [];
 
+    /**
+     * 有值时 send() 走回调输出，不再 json 编码 data。
+     *
+     * @var (callable(): void)|null
+     */
+    protected $streamer = null;
+
     public function __construct(mixed $data = null, int $statusCode = 200, array $headers = [])
     {
         $this->data = $data;
         $this->statusCode = $statusCode;
         $this->headers = $headers;
+    }
+
+    /**
+     * @param callable(): void $callback headers 发出后执行
+     * @param array<string, string> $headers
+     */
+    public static function stream(callable $callback, int $statusCode = 200, array $headers = []): self
+    {
+        $response = new self(null, $statusCode, $headers);
+        $response->streamer = $callback;
+
+        return $response;
+    }
+
+    /**
+     * @param callable(): void $callback
+     * @param array<string, string> $headers 覆盖 Sse::headers()
+     */
+    public static function sse(callable $callback, int $statusCode = 200, array $headers = []): self
+    {
+        return self::stream($callback, $statusCode, array_merge(Sse::headers(), $headers));
     }
 
     /**
@@ -245,7 +273,11 @@ class Response
     {
         http_response_code($this->statusCode);
 
-        if (!isset($this->headers['Content-Type'])) {
+        if ($this->streamer !== null) {
+            if (!isset($this->headers['Content-Type'])) {
+                $this->headers['Content-Type'] = 'text/event-stream; charset=utf-8';
+            }
+        } elseif (!isset($this->headers['Content-Type'])) {
             $this->headers['Content-Type'] = 'application/json; charset=utf-8';
         }
 
@@ -255,6 +287,15 @@ class Response
 
         foreach ($this->cookies as $cookie) {
             setcookie($cookie['name'], $cookie['value'], $cookie['options']);
+        }
+
+        if ($this->streamer !== null) {
+            // 关掉缓冲，否则分片会积在 PHP 侧
+            Sse::prepare();
+            flush();
+            ($this->streamer)();
+
+            return;
         }
 
         if (is_array($this->data) || is_object($this->data)) {
