@@ -160,8 +160,15 @@ class Client
         curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $method);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_HEADER, true);
+        // 0 = 不限制总超时（libcurl 语义）
         curl_setopt($ch, CURLOPT_TIMEOUT, $this->timeout);
-        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, min(10, $this->timeout > 0 ? $this->timeout : 10));
+        // 连接超时单独限制；总超时为 0 时仅限制建连，避免 DNS/端口挂死
+        $connectTimeout = $this->timeout === 0 ? 30 : min(10, max(1, $this->timeout));
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, $connectTimeout);
+        // Linux 下低超时/无限等待时避免信号问题
+        if (defined('CURLOPT_NOSIGNAL')) {
+            curl_setopt($ch, CURLOPT_NOSIGNAL, true);
+        }
 
         if ($method === 'HEAD') {
             curl_setopt($ch, CURLOPT_NOBODY, true);
