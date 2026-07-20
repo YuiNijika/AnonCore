@@ -252,7 +252,18 @@ class Dispatcher
                 continue;
             }
 
-            $args[] = null;
+            if ($param->allowsNull()) {
+                $args[] = null;
+                continue;
+            }
+
+            throw new Http(
+                500,
+                "Unable to resolve action parameter [{$name}].",
+                [],
+                null,
+                'ACTION_PARAMETER_UNRESOLVED'
+            );
         }
 
         return $args;

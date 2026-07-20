@@ -2,7 +2,7 @@
 
 namespace Anon\Core\Validation;
 
-use Exception;
+use Anon\Core\Exception\Validation as ValidationError;
 
 class Validator
 {
@@ -93,17 +93,72 @@ class Validator
     protected function validate(): void
     {
         foreach ($this->rules as $field => $rules) {
-            $value = $this->data[$field] ?? null;
+            $value = $this->getDataValue($field);
+            $nullable = in_array('nullable', $rules, true);
 
             foreach ($rules as $rule) {
-                // 如果没有传值且规则不是 required，则跳过其他验证
-                if ($value === null && $rule !== 'required') {
+                $ruleName = $rule;
+                if (is_string($rule) && str_contains($rule, ':')) {
+                    $ruleName = explode(':', $rule, 2)[0];
+                }
+
+                if ($ruleName === 'nullable') {
                     continue;
                 }
 
-                $this->applyRule($field, $value, $rule);
+                // 空值且非 required：nullable 或 null 时跳过后续规则
+                if ($this->isEmptyValue($value) && $ruleName !== 'required') {
+                    if ($nullable || $value === null) {
+                        continue;
+                    }
+                }
+
+                if ($value === null && $ruleName !== 'required') {
+                    continue;
+                }
+
+                $this->applyRule($field, $value, (string) $rule);
             }
         }
+    }
+
+    /**
+     * 支持点号路径：address.city
+     */
+    protected function getDataValue(string $field): mixed
+    {
+        if (array_key_exists($field, $this->data)) {
+            return $this->data[$field];
+        }
+
+        if (!str_contains($field, '.')) {
+            return null;
+        }
+
+        $value = $this->data;
+        foreach (explode('.', $field) as $segment) {
+            if (!is_array($value) || !array_key_exists($segment, $value)) {
+                return null;
+            }
+            $value = $value[$segment];
+        }
+
+        return $value;
+    }
+
+    protected function isEmptyValue(mixed $value): bool
+    {
+        if ($value === null) {
+            return true;
+        }
+        if (is_string($value) && trim($value) === '') {
+            return true;
+        }
+        if (is_array($value) && $value === []) {
+            return true;
+        }
+
+        return false;
     }
 
     /**
@@ -114,7 +169,11 @@ class Validator
         $params = [];
         $ruleName = $rule;
 
-        if (str_contains($rule, ':')) {
+        // regex: 之后整段都是模式，允许模式内包含冒号
+        if (str_starts_with($rule, 'regex:')) {
+            $ruleName = 'regex';
+            $params = [substr($rule, 6)];
+        } elseif (str_contains($rule, ':')) {
             [$ruleName, $paramStr] = explode(':', $rule, 2);
             $params = explode(',', $paramStr);
         }
@@ -122,7 +181,7 @@ class Validator
         $method = 'validate' . ucfirst(strtolower($ruleName));
 
         if (!method_exists($this, $method)) {
-            throw new Exception("Validation rule [{$ruleName}] is not supported.");
+            throw new ValidationError("Validation rule [{$ruleName}] is not supported.");
         }
 
         $passed = $this->$method($field, $value, $params);
@@ -153,17 +212,30 @@ class Validator
     protected function getDefaultMessage(string $field, string $ruleName, array $params = []): string
     {
         $param0 = $params[0] ?? '';
+        // 默认文案与框架异常信息统一为英文；业务侧可通过 messages() 覆盖
         $messages = [
-            'required' => "{$field} 不能为空",
-            'email'    => "{$field} 格式不正确",
-            'max'      => "{$field} 的最大长度/值不能超过 {$param0}",
-            'min'      => "{$field} 的最小长度/值不能低于 {$param0}",
-            'numeric'  => "{$field} 必须是数字",
-            'integer'  => "{$field} 必须是整数",
-            'in'       => "{$field} 必须在允许的范围内",
+            'required'  => "The {$field} field is required.",
+            'email'     => "The {$field} field must be a valid email address.",
+            'max'       => "The {$field} field must not be greater than {$param0}.",
+            'min'       => "The {$field} field must be at least {$param0}.",
+            'numeric'   => "The {$field} field must be a number.",
+            'integer'   => "The {$field} field must be an integer.",
+            'in'        => "The selected {$field} is invalid.",
+            'array'     => "The {$field} field must be an array.",
+            'date'      => "The {$field} field must be a valid date.",
+            'confirmed' => "The {$field} field confirmation does not match.",
+            'boolean'   => "The {$field} field must be true or false.",
+            'regex'     => "The {$field} field format is invalid.",
+            'alpha'     => "The {$field} field must only contain letters.",
+            'alpha_num' => "The {$field} field must only contain letters and numbers.",
+            'url'       => "The {$field} field must be a valid URL.",
+            'ip'        => "The {$field} field must be a valid IP address.",
+            'json'      => "The {$field} field must be a valid JSON string.",
+            'same'      => "The {$field} field must match {$param0}.",
+            'different' => "The {$field} field and {$param0} must be different.",
         ];
 
-        return $messages[$ruleName] ?? "{$field} 格式验证失败";
+        return $messages[$ruleName] ?? "The {$field} field is invalid.";
     }
 
     // ------------------------------------------------------------------------
@@ -226,5 +298,106 @@ class Validator
     protected function validateIn(string $field, mixed $value, array $params): bool
     {
         return in_array((string)$value, $params, true);
+    }
+
+    protected function validateArray(string $field, mixed $value, array $params): bool
+    {
+        return is_array($value);
+    }
+
+    protected function validateDate(string $field, mixed $value, array $params): bool
+    {
+        if (!is_string($value) && !is_numeric($value)) {
+            return false;
+        }
+
+        try {
+            new \DateTimeImmutable((string) $value);
+            return true;
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    protected function validateConfirmed(string $field, mixed $value, array $params): bool
+    {
+        $other = $this->data[$field . '_confirmation'] ?? null;
+
+        return (string) $value === (string) $other;
+    }
+
+    protected function validateBoolean(string $field, mixed $value, array $params): bool
+    {
+        return in_array($value, [true, false, 0, 1, '0', '1', 'true', 'false'], true);
+    }
+
+    protected function validateNullable(string $field, mixed $value, array $params): bool
+    {
+        return true;
+    }
+
+    protected function validateRegex(string $field, mixed $value, array $params): bool
+    {
+        $pattern = $params[0] ?? '';
+        if ($pattern === '' || (!is_string($value) && !is_numeric($value))) {
+            return false;
+        }
+
+        // 允许用户写 ^...$ 或 /.../ 两种形式
+        if ($pattern[0] !== '/') {
+            $pattern = '/' . str_replace('/', '\/', $pattern) . '/';
+        }
+
+        return @preg_match($pattern, (string) $value) === 1;
+    }
+
+    protected function validateAlpha(string $field, mixed $value, array $params): bool
+    {
+        return is_string($value) && preg_match('/^[\pL\pM]+$/u', $value) === 1;
+    }
+
+    protected function validateAlpha_num(string $field, mixed $value, array $params): bool
+    {
+        return is_string($value) && preg_match('/^[\pL\pM\pN]+$/u', $value) === 1;
+    }
+
+    protected function validateUrl(string $field, mixed $value, array $params): bool
+    {
+        return is_string($value) && filter_var($value, FILTER_VALIDATE_URL) !== false;
+    }
+
+    protected function validateIp(string $field, mixed $value, array $params): bool
+    {
+        return is_string($value) && filter_var($value, FILTER_VALIDATE_IP) !== false;
+    }
+
+    protected function validateJson(string $field, mixed $value, array $params): bool
+    {
+        if (!is_string($value)) {
+            return false;
+        }
+
+        json_decode($value);
+        return json_last_error() === JSON_ERROR_NONE;
+    }
+
+    protected function validateSame(string $field, mixed $value, array $params): bool
+    {
+        $otherField = $params[0] ?? '';
+        if ($otherField === '') {
+            return false;
+        }
+
+        return (string) $value === (string) $this->getDataValue($otherField);
+    }
+
+    protected function validateDifferent(string $field, mixed $value, array $params): bool
+    {
+        $otherField = $params[0] ?? '';
+        if ($otherField === '') {
+            return false;
+        }
+
+        return (string) $value !== (string) $this->getDataValue($otherField);
     }
 }

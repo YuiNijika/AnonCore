@@ -2,7 +2,7 @@
 
 namespace Anon\Core\Storage;
 
-use Exception;
+use Anon\Core\Exception\Storage as StorageError;
 use Anon\Core\Facade\Config;
 use Anon\Core\Facade\Env;
 
@@ -46,7 +46,7 @@ class Manager implements Contract
             case 'local':
                 return new Local();
             default:
-                throw new Exception("Storage disk [{$name}] is not supported.");
+                throw new StorageError("Storage disk [{$name}] is not supported.");
         }
     }
 

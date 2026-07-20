@@ -21,10 +21,11 @@ class Str
                 $bytes = random_bytes($size);
                 $string .= substr(str_replace(['/', '+', '='], '', base64_encode($bytes)), 0, $size);
             } catch (\Throwable $e) {
-                // 回退方案
+                // 回退 仍尽量使用 CSPRNG（random_int）
                 $characters = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+                $max = strlen($characters) - 1;
                 for ($i = 0; $i < $size; $i++) {
-                    $string .= $characters[mt_rand(0, strlen($characters) - 1)];
+                    $string .= $characters[random_int(0, $max)];
                 }
             }
         }
@@ -45,14 +46,14 @@ class Str
             $data[8] = chr(ord($data[8]) & 0x3f | 0x80); // set bits 6-7 to 10
             return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($data), 4));
         } catch (\Throwable $e) {
-            // 回退方案
+            // 回退 使用 random_int 而非 mt_rand
             return sprintf(
                 '%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
-                mt_rand(0, 0xffff), mt_rand(0, 0xffff),
-                mt_rand(0, 0xffff),
-                mt_rand(0, 0x0fff) | 0x4000,
-                mt_rand(0, 0x3fff) | 0x8000,
-                mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff)
+                random_int(0, 0xffff), random_int(0, 0xffff),
+                random_int(0, 0xffff),
+                random_int(0, 0x0fff) | 0x4000,
+                random_int(0, 0x3fff) | 0x8000,
+                random_int(0, 0xffff), random_int(0, 0xffff), random_int(0, 0xffff)
             );
         }
     }

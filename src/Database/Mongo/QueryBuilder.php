@@ -4,7 +4,7 @@ namespace Anon\Core\Database\Mongo;
 
 use Anon\Core\Database\Model;
 use Anon\Core\Database\QueryBuilder as BaseQueryBuilder;
-use RuntimeException;
+use Anon\Core\Exception\Database as DatabaseError;
 
 class QueryBuilder extends BaseQueryBuilder
 {
@@ -26,7 +26,7 @@ class QueryBuilder extends BaseQueryBuilder
 
     public function selectRaw(string $expression): self
     {
-        throw new RuntimeException('MongoDB driver does not support SQL-style selectRaw().');
+        throw new DatabaseError('MongoDB driver does not support SQL-style selectRaw().');
     }
 
     public function where(string $column, mixed $operator = null, mixed $value = null, string $boolean = 'AND'): self
@@ -248,27 +248,27 @@ class QueryBuilder extends BaseQueryBuilder
 
     public function join(string $table, string $first, string $operator, string $second, string $type = 'INNER'): self
     {
-        throw new RuntimeException('MongoDB driver does not support SQL-style join().');
+        throw new DatabaseError('MongoDB driver does not support SQL-style join().');
     }
 
     public function leftJoin(string $table, string $first, string $operator, string $second): self
     {
-        throw new RuntimeException('MongoDB driver does not support SQL-style leftJoin().');
+        throw new DatabaseError('MongoDB driver does not support SQL-style leftJoin().');
     }
 
     public function groupBy(string|array $columns): self
     {
-        throw new RuntimeException('MongoDB driver does not support SQL-style groupBy() on find queries.');
+        throw new DatabaseError('MongoDB driver does not support SQL-style groupBy() on find queries.');
     }
 
     public function having(string $column, mixed $operator = null, mixed $value = null, string $boolean = 'AND'): self
     {
-        throw new RuntimeException('MongoDB driver does not support SQL-style having().');
+        throw new DatabaseError('MongoDB driver does not support SQL-style having().');
     }
 
     public function havingRaw(string $expression, array $bindings = [], string $boolean = 'AND'): self
     {
-        throw new RuntimeException('MongoDB driver does not support SQL-style havingRaw().');
+        throw new DatabaseError('MongoDB driver does not support SQL-style havingRaw().');
     }
 
     public function orderBy(string $column, string $direction = 'asc'): self
@@ -280,7 +280,7 @@ class QueryBuilder extends BaseQueryBuilder
 
     public function orderByRaw(string $expression): self
     {
-        throw new RuntimeException('MongoDB driver does not support SQL-style orderByRaw().');
+        throw new DatabaseError('MongoDB driver does not support SQL-style orderByRaw().');
     }
 
     public function project(array $projection): self
@@ -288,7 +288,7 @@ class QueryBuilder extends BaseQueryBuilder
         foreach ($projection as $field => $include) {
             if (is_int($field)) {
                 if (!is_string($include) || $include === '' || str_contains($include, ' ')) {
-                    throw new RuntimeException('MongoDB project() only supports direct field names.');
+                    throw new DatabaseError('MongoDB project() only supports direct field names.');
                 }
 
                 $this->select[] = $include;
@@ -296,7 +296,7 @@ class QueryBuilder extends BaseQueryBuilder
             }
 
             if (!is_string($field) || $field === '' || str_starts_with($field, '$') || str_contains($field, ' ')) {
-                throw new RuntimeException('MongoDB project() only supports direct field names.');
+                throw new DatabaseError('MongoDB project() only supports direct field names.');
             }
 
             if ((int) $include === 1) {
@@ -304,7 +304,7 @@ class QueryBuilder extends BaseQueryBuilder
                 continue;
             }
 
-            throw new RuntimeException('MongoDB project() currently only supports include projection with value 1.');
+            throw new DatabaseError('MongoDB project() currently only supports include projection with value 1.');
         }
 
         $this->select = array_values(array_unique($this->select));
@@ -324,12 +324,12 @@ class QueryBuilder extends BaseQueryBuilder
     public function addPipelineStage(array $stage): self
     {
         if (count($stage) !== 1) {
-            throw new RuntimeException('Each MongoDB pipeline stage must contain exactly one operator.');
+            throw new DatabaseError('Each MongoDB pipeline stage must contain exactly one operator.');
         }
 
         $operator = array_key_first($stage);
         if (!is_string($operator) || !str_starts_with($operator, '$')) {
-            throw new RuntimeException('MongoDB pipeline stage key must start with $.');
+            throw new DatabaseError('MongoDB pipeline stage key must start with $.');
         }
 
         $this->pipelineStages[] = $this->mongo()->normalizeFilterDocument($stage);
@@ -375,7 +375,7 @@ class QueryBuilder extends BaseQueryBuilder
         }
 
         if ($column === '*') {
-            throw new RuntimeException('MongoDB aggregate functions except COUNT require a concrete field.');
+            throw new DatabaseError('MongoDB aggregate functions except COUNT require a concrete field.');
         }
 
         $operator = match ($function) {
@@ -383,7 +383,7 @@ class QueryBuilder extends BaseQueryBuilder
             'AVG' => '$avg',
             'MIN' => '$min',
             'MAX' => '$max',
-            default => throw new RuntimeException("Unsupported aggregate function [{$function}] for MongoDB."),
+            default => throw new DatabaseError("Unsupported aggregate function [{$function}] for MongoDB."),
         };
 
         $pipeline = [[
@@ -435,7 +435,8 @@ class QueryBuilder extends BaseQueryBuilder
 
     public function insertAll(array $values): int
     {
-        return $this->mongo()->insertMany($this->table, $values);
+        // Connection::insertMany 返回 ID 列表；对外仍保持「影响行数」语义
+        return count($this->mongo()->insertMany($this->table, $values));
     }
 
     public function update(array $values): int
@@ -528,7 +529,7 @@ class QueryBuilder extends BaseQueryBuilder
         $payload = [];
         foreach ($fields as $field) {
             if (!is_string($field) || $field === '') {
-                throw new RuntimeException('MongoDB unset() fields must be non-empty strings.');
+                throw new DatabaseError('MongoDB unset() fields must be non-empty strings.');
             }
 
             $payload[$field] = '';
@@ -557,7 +558,7 @@ class QueryBuilder extends BaseQueryBuilder
     public function renameField(string $from, string $to): int
     {
         if ($from === '' || $to === '') {
-            throw new RuntimeException('MongoDB renameField() requires non-empty field names.');
+            throw new DatabaseError('MongoDB renameField() requires non-empty field names.');
         }
 
         return $this->updateOperators([
@@ -623,7 +624,7 @@ class QueryBuilder extends BaseQueryBuilder
         $projection = [];
         foreach ($this->select as $column) {
             if (!is_string($column) || $column === '*' || str_contains($column, ' ')) {
-                throw new RuntimeException('MongoDB projection only supports direct field names.');
+                throw new DatabaseError('MongoDB projection only supports direct field names.');
             }
             $projection[$column] = 1;
         }
@@ -660,7 +661,7 @@ class QueryBuilder extends BaseQueryBuilder
             'document' => $this->mongo()->normalizeFilterDocument($where['value']),
             'like' => $this->buildRegexClause($where['column'], $this->convertLikePatternToRegex($where['value']), !(bool) ($where['case_sensitive'] ?? false), (bool) ($where['not'] ?? false)),
             'regex' => $this->buildRegexClause($where['column'], $where['value'], !(bool) ($where['case_sensitive'] ?? false), (bool) ($where['not'] ?? false)),
-            default => throw new RuntimeException("Unsupported MongoDB where type [{$where['type']}]."),
+            default => throw new DatabaseError("Unsupported MongoDB where type [{$where['type']}]."),
         };
     }
 
@@ -688,7 +689,7 @@ class QueryBuilder extends BaseQueryBuilder
                 in_array($normalized, ['~*'], true) ? false : !in_array($normalized, ['~*', '!~*'], true),
                 in_array($normalized, ['NOT REGEXP', 'NOT RLIKE', '!~', '!~*'], true)
             ),
-            default => throw new RuntimeException("Operator [{$operator}] is not supported by the MongoDB QueryBuilder."),
+            default => throw new DatabaseError("Operator [{$operator}] is not supported by the MongoDB QueryBuilder."),
         };
     }
 
@@ -793,17 +794,17 @@ class QueryBuilder extends BaseQueryBuilder
 
         foreach ($operators as $operator => $payload) {
             if (!is_string($operator) || !str_starts_with($operator, '$')) {
-                throw new RuntimeException('MongoDB updateOperators() keys must start with $.');
+                throw new DatabaseError('MongoDB updateOperators() keys must start with $.');
             }
 
             if (!is_array($payload) || $payload === []) {
-                throw new RuntimeException("MongoDB update operator [{$operator}] requires a non-empty array payload.");
+                throw new DatabaseError("MongoDB update operator [{$operator}] requires a non-empty array payload.");
             }
 
             $normalized[$operator] = [];
             foreach ($payload as $field => $value) {
                 if (!is_string($field) || $field === '') {
-                    throw new RuntimeException("MongoDB update operator [{$operator}] requires non-empty string field names.");
+                    throw new DatabaseError("MongoDB update operator [{$operator}] requires non-empty string field names.");
                 }
 
                 $normalized[$operator][$field] = match ($operator) {

@@ -2,7 +2,7 @@
 
 namespace Anon\Core\Http;
 
-use Exception;
+use Anon\Core\Exception\HttpClient as HttpClientError;
 
 class Client
 {
@@ -102,53 +102,11 @@ class Client
      */
     public function head(string $url, array $headers = []): array
     {
-        if (!extension_loaded('curl')) {
-            throw new Exception("The 'curl' extension is required for HTTP Client.");
-        }
-
-        $sslVerify = $this->sslVerify ?? (bool) \Anon\Core\Facade\Config::get('http.ssl_verify', true);
-
-        $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, $url);
-        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'HEAD');
-        curl_setopt($ch, CURLOPT_NOBODY, true);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_HEADER, true);
-        curl_setopt($ch, CURLOPT_TIMEOUT, $this->timeout);
-
-        if (!$sslVerify) {
-            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
-        }
-
-        if (!empty($headers)) {
-            $formattedHeaders = [];
-            foreach ($headers as $key => $value) {
-                if (is_numeric($key)) {
-                    $formattedHeaders[] = $value;
-                } else {
-                    $formattedHeaders[] = "{$key}: {$value}";
-                }
-            }
-            curl_setopt($ch, CURLOPT_HTTPHEADER, $formattedHeaders);
-        }
-
-        $response = curl_exec($ch);
-        $error = curl_error($ch);
-        $statusCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $headerSize = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
-
-        curl_close($ch);
-
-        if ($response === false) {
-            throw new Exception("HTTP Client Error: {$error}");
-        }
-
-        $responseHeadersStr = substr($response, 0, $headerSize);
+        $response = $this->request('HEAD', $url, null, $headers);
 
         return [
-            'status' => $statusCode,
-            'headers' => $this->parseHeaders($responseHeadersStr),
+            'status' => $response['status'],
+            'headers' => $response['headers'],
             'body' => '',
             'json' => null,
         ];
@@ -185,12 +143,12 @@ class Client
      * @param mixed $data
      * @param array $headers
      * @return array
-     * @throws Exception
+     * @throws HttpClientError
      */
     public function request(string $method, string $url, mixed $data = null, array $headers = []): array
     {
         if (!extension_loaded('curl')) {
-            throw new Exception("The 'curl' extension is required for HTTP Client.");
+            throw new HttpClientError("The 'curl' extension is required for HTTP Client.");
         }
 
         $sslVerify = $this->sslVerify ?? (bool) \Anon\Core\Facade\Config::get('http.ssl_verify', true);
@@ -203,6 +161,11 @@ class Client
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_HEADER, true);
         curl_setopt($ch, CURLOPT_TIMEOUT, $this->timeout);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, min(10, $this->timeout > 0 ? $this->timeout : 10));
+
+        if ($method === 'HEAD') {
+            curl_setopt($ch, CURLOPT_NOBODY, true);
+        }
 
         // SSL 证书校验配置
         if (!$sslVerify) {
@@ -256,18 +219,41 @@ class Client
         curl_close($ch);
 
         if ($response === false) {
-            throw new Exception("HTTP Client Error: {$error}");
+            throw new HttpClientError("HTTP Client Error: {$error}");
         }
 
         $responseHeadersStr = substr($response, 0, $headerSize);
-        $responseBody = substr($response, $headerSize);
+        $responseBody = $method === 'HEAD' ? '' : substr($response, $headerSize);
+        $responseHeaders = $this->parseHeaders($responseHeadersStr);
+
+        $json = null;
+        if ($responseBody !== '' && $this->looksLikeJsonResponse($responseHeaders, $responseBody)) {
+            $json = json_decode($responseBody, true);
+        }
 
         return [
             'status' => $statusCode,
-            'headers' => $this->parseHeaders($responseHeadersStr),
+            'headers' => $responseHeaders,
             'body' => $responseBody,
-            'json' => json_decode($responseBody, true) // 尝试自动解析 JSON
+            'json' => $json,
         ];
+    }
+
+    /**
+     * 仅在 Content-Type 为 JSON 或正文像 JSON 时解码，避免无意义的 json_decode
+     *
+     * @param array<string, string> $headers
+     */
+    protected function looksLikeJsonResponse(array $headers, string $body): bool
+    {
+        foreach ($headers as $name => $value) {
+            if (strtolower((string) $name) === 'content-type' && str_contains(strtolower((string) $value), 'json')) {
+                return true;
+            }
+        }
+
+        $trim = ltrim($body);
+        return $trim !== '' && ($trim[0] === '{' || $trim[0] === '[');
     }
 
     /**

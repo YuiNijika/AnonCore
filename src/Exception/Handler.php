@@ -72,14 +72,30 @@ class Handler
         foreach ($hookResponses as $hookResponse) {
             if ($hookResponse instanceof Response) {
                 $this->sendResponse($hookResponse);
-                exit(1);
+                $this->terminate();
+                return;
             }
         }
 
         $this->sendResponse(
             Response::error($message, $statusCode, $errors, $errorCode, $traceId, $debug)
         );
-        exit(1);
+        $this->terminate();
+    }
+
+    /**
+     * 结束请求进程。测试 / 长生命周期环境可通过 ANON_EXCEPTION_EXIT=false 关闭 exit。
+     */
+    protected function terminate(): void
+    {
+        $shouldExit = filter_var(
+            Env::get('ANON_EXCEPTION_EXIT', true),
+            FILTER_VALIDATE_BOOLEAN
+        );
+
+        if ($shouldExit) {
+            exit(1);
+        }
     }
 
     protected function sendResponse(Response $response): void

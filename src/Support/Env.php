@@ -86,14 +86,19 @@ class Env
     public function set(string $key, mixed $value): void
     {
         $this->data[$key] = $value;
-        
-        // 同步设置到 PHP 环境变量中
-        $envValue = is_bool($value) ? ($value ? 'true' : 'false') : (string)$value;
-        
-        if (function_exists('putenv')) {
-            putenv("{$key}={$envValue}");
+
+        // 同步到 $_ENV / $_SERVER；putenv 可选，禁用后避免污染长生命周期进程
+        $envValue = is_bool($value) ? ($value ? 'true' : 'false') : (string) $value;
+
+        $disablePutenv = filter_var(
+            $_ENV['ANON_DISABLE_PUTENV'] ?? getenv('ANON_DISABLE_PUTENV') ?: false,
+            FILTER_VALIDATE_BOOLEAN
+        );
+
+        if (!$disablePutenv && function_exists('putenv')) {
+            @putenv("{$key}={$envValue}");
         }
-        
+
         $_ENV[$key] = $value;
         $_SERVER[$key] = $value;
     }

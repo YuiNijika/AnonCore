@@ -3,9 +3,9 @@
 namespace Anon\Core\Cache;
 
 use Redis as PhpRedis;
-use Exception;
 use Anon\Core\Facade\Config;
 use Anon\Core\Facade\Env;
+use Anon\Core\Support\RedisConnector;
 
 class Redis implements Contract
 {
@@ -21,31 +21,12 @@ class Redis implements Contract
 
     public function __construct()
     {
-        if (!extension_loaded('redis')) {
-            throw new Exception("The 'redis' extension is required to use Redis cache.");
-        }
-
-        $redisConfig = Config::get('cache.redis', Config::get('redis', []));
         $cacheConfig = Config::get('cache', []);
-
-        $host = is_array($redisConfig) ? ($redisConfig['host'] ?? Env::get('REDIS_HOST', '127.0.0.1')) : Env::get('REDIS_HOST', '127.0.0.1');
-        $port = is_array($redisConfig) ? ($redisConfig['port'] ?? Env::get('REDIS_PORT', 6379)) : Env::get('REDIS_PORT', 6379);
-        $password = is_array($redisConfig) ? ($redisConfig['password'] ?? Env::get('REDIS_PASSWORD', '')) : Env::get('REDIS_PASSWORD', '');
-        $database = is_array($redisConfig) ? ($redisConfig['database'] ?? Env::get('REDIS_DB', 0)) : Env::get('REDIS_DB', 0);
         $this->prefix = is_array($cacheConfig)
-            ? ($cacheConfig['prefix'] ?? Env::get('CACHE_PREFIX', Env::get('REDIS_PREFIX', 'anon:cache:')))
-            : Env::get('CACHE_PREFIX', Env::get('REDIS_PREFIX', 'anon:cache:'));
+            ? (string) ($cacheConfig['prefix'] ?? Env::get('CACHE_PREFIX', Env::get('REDIS_PREFIX', 'anon:cache:')))
+            : (string) Env::get('CACHE_PREFIX', Env::get('REDIS_PREFIX', 'anon:cache:'));
 
-        $this->redis = new PhpRedis();
-        $this->redis->connect($host, $port);
-
-        if ($password !== '') {
-            $this->redis->auth($password);
-        }
-
-        if ($database !== 0) {
-            $this->redis->select($database);
-        }
+        $this->redis = RedisConnector::connect('cache.redis', ['cache.redis', 'redis']);
     }
 
     /**
@@ -58,32 +39,27 @@ class Redis implements Contract
 
     public function get(string $key, mixed $default = null): mixed
     {
-        $value = $this->redis->get($this->getRealKey($key));
-        
-        if ($value === false) {
+        $realKey = $this->getRealKey($key);
+
+        // exists 先判断，避免把存储的 false / 空串当成 miss
+        if ($this->redis->exists($realKey) === 0) {
             return $default;
         }
 
-        if (is_numeric($value)) {
-            // Redis 返回的是字符串，如果原样是数字，我们转换为数值类型
-            return str_contains($value, '.') ? (float)$value : (int)$value;
+        $value = $this->redis->get($realKey);
+        if ($value === false && !$this->redis->exists($realKey)) {
+            return $default;
         }
 
-        // 尝试反序列化
-        $unserialized = @unserialize($value, ['allowed_classes' => false]);
-        if ($unserialized !== false || $value === 'b:0;') {
-            return $unserialized;
-        }
-        
-        return $value;
+        return $this->decodeStoredValue($value);
     }
 
     public function set(string $key, mixed $value, ?int $ttl = null): bool
     {
         $realKey = $this->getRealKey($key);
-        
-        // 为了支持 incrBy，对数字类型不进行序列化；其余类型进行序列化以保证类型安全和防止冲突
-        $valueToStore = is_numeric($value) ? $value : serialize($value);
+
+        // 统一序列化，避免数字/字符串类型丢失；整数计数器通过 increment 路径维护
+        $valueToStore = serialize($value);
 
         if ($ttl !== null && $ttl > 0) {
             return $this->redis->setex($realKey, $ttl, $valueToStore);
@@ -123,20 +99,31 @@ class Redis implements Contract
 
     public function increment(string $key, int $value = 1): int|bool
     {
-        return $this->redis->incrBy($this->getRealKey($key), $value);
+        $realKey = $this->getRealKey($key);
+
+        // 若键是序列化整数，先解码再以原生数字重写，保证 INCR 可用
+        if ($this->redis->exists($realKey) > 0) {
+            $raw = $this->redis->get($realKey);
+            $decoded = $this->decodeStoredValue($raw);
+            if (is_int($decoded) || (is_string($decoded) && ctype_digit($decoded))) {
+                $this->redis->set($realKey, (string) (int) $decoded);
+            } elseif (is_float($decoded) || (is_numeric($decoded) && !is_string($decoded))) {
+                $this->redis->set($realKey, (string) (int) $decoded);
+            }
+        }
+
+        return $this->redis->incrBy($realKey, $value);
     }
 
     public function decrement(string $key, int $value = 1): int|bool
     {
-        return $this->redis->decrBy($this->getRealKey($key), $value);
+        return $this->increment($key, -$value);
     }
 
     public function remember(string $key, int $ttl, callable $callback): mixed
     {
-        $value = $this->get($key);
-
-        if ($value !== null) {
-            return $value;
+        if ($this->has($key)) {
+            return $this->get($key);
         }
 
         $value = $callback();
@@ -148,8 +135,7 @@ class Redis implements Contract
     public function pull(string $key, mixed $default = null): mixed
     {
         $realKey = $this->getRealKey($key);
-        
-        // 开启事务来保证获取并删除的原子性
+
         $this->redis->multi();
         $this->redis->get($realKey);
         $this->redis->del($realKey);
@@ -157,19 +143,47 @@ class Redis implements Contract
 
         $value = $results[0] ?? false;
 
+        if ($value === false && ($results[1] ?? 0) === 0) {
+            return $default;
+        }
+
         if ($value === false) {
             return $default;
         }
 
-        if (is_numeric($value)) {
-            return str_contains($value, '.') ? (float)$value : (int)$value;
+        return $this->decodeStoredValue($value);
+    }
+
+    /**
+     * 为键设置过期时间（秒）。用于限流等原子计数场景。
+     */
+    public function expire(string $key, int $ttl): bool
+    {
+        if ($ttl <= 0) {
+            return true;
+        }
+
+        return $this->redis->expire($this->getRealKey($key), $ttl);
+    }
+
+    protected function decodeStoredValue(mixed $value): mixed
+    {
+        if (!is_string($value)) {
+            return $value;
+        }
+
+        // 兼容旧版：裸数字字符串（increment 路径）
+        if (is_numeric($value) && !str_starts_with($value, 's:') && !str_starts_with($value, 'i:') && !str_starts_with($value, 'd:') && !str_starts_with($value, 'b:') && !str_starts_with($value, 'a:') && !str_starts_with($value, 'N;') && !str_starts_with($value, 'O:')) {
+            if (!str_contains($value, ';') && !str_contains($value, ':')) {
+                return str_contains($value, '.') ? (float) $value : (int) $value;
+            }
         }
 
         $unserialized = @unserialize($value, ['allowed_classes' => false]);
         if ($unserialized !== false || $value === 'b:0;') {
             return $unserialized;
         }
-        
+
         return $value;
     }
 }

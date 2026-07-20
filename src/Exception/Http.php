@@ -2,24 +2,17 @@
 
 namespace Anon\Core\Exception;
 
-use Exception;
 use Throwable;
 
-class Http extends Exception
+/**
+ * HTTP 业务异常：携带状态码、附加数据与机器可读 error_code。
+ */
+class Http extends Base
 {
-    /**
-     * @var int HTTP 状态码
-     */
     protected int $statusCode;
 
-    /**
-     * @var array 附加数据
-     */
     protected array $data;
 
-    /**
-     * @var string 机器可读错误码
-     */
     protected string $errorCode;
 
     public function __construct(

@@ -39,8 +39,8 @@ class File implements Contract
             return $default;
         }
 
-        $data = unserialize($content, ['allowed_classes' => false]);
-        if ($data === false) {
+        $data = $this->decodeCachePayload($content);
+        if ($data === null) {
             return $default;
         }
 
@@ -78,8 +78,8 @@ class File implements Contract
             return false;
         }
 
-        $data = unserialize($content, ['allowed_classes' => false]);
-        if ($data === false) {
+        $data = $this->decodeCachePayload($content);
+        if ($data === null) {
             return false;
         }
 
@@ -111,7 +111,7 @@ class File implements Contract
                     $success = $success && unlink($fileInfo->getPathname());
                 }
             }
-        } catch (\Exception $e) {
+        } catch (\Throwable) {
             return false;
         }
 
@@ -129,15 +129,17 @@ class File implements Contract
 
         if (flock($fp, LOCK_EX)) {
             $content = stream_get_contents($fp);
-            $data = $content ? unserialize($content, ['allowed_classes' => false]) : false;
-            
+            $data = is_string($content) && $content !== ''
+                ? $this->decodeCachePayload($content)
+                : null;
+
             $currentValue = 0;
             $expire = 0;
 
             if (is_array($data)) {
                 if ($data['expire'] === 0 || time() <= $data['expire']) {
-                    $currentValue = (int)$data['value'];
-                    $expire = $data['expire'];
+                    $currentValue = (int) $data['value'];
+                    $expire = (int) $data['expire'];
                 }
             }
 
@@ -167,10 +169,9 @@ class File implements Contract
 
     public function remember(string $key, int $ttl, callable $callback): mixed
     {
-        $value = $this->get($key);
-
-        if ($value !== null) {
-            return $value;
+        // 用 has 判断命中，允许缓存 null / false
+        if ($this->has($key)) {
+            return $this->get($key);
         }
 
         $value = $callback();
@@ -181,12 +182,31 @@ class File implements Contract
 
     public function pull(string $key, mixed $default = null): mixed
     {
-        $value = $this->get($key, $default);
-        
-        if ($value !== $default) {
-            $this->delete($key);
+        if (!$this->has($key)) {
+            return $default;
         }
-        
+
+        $value = $this->get($key, $default);
+        $this->delete($key);
+
         return $value;
+    }
+
+    /**
+     * 解析缓存文件载荷；损坏或格式非法时返回 null。
+     *
+     * @return array{value: mixed, expire: int}|null
+     */
+    protected function decodeCachePayload(string $content): ?array
+    {
+        $data = @unserialize($content, ['allowed_classes' => false]);
+        if (!is_array($data) || !array_key_exists('value', $data) || !array_key_exists('expire', $data)) {
+            return null;
+        }
+
+        return [
+            'value' => $data['value'],
+            'expire' => (int) $data['expire'],
+        ];
     }
 }

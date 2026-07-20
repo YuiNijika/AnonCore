@@ -2,7 +2,7 @@
 
 namespace Anon\Core\Http;
 
-use Exception;
+use Anon\Core\Exception\Storage as StorageError;
 use Anon\Core\Facade\Config;
 
 class UploadedFile
@@ -84,7 +84,7 @@ class UploadedFile
     public function getContents(): string
     {
         if (!$this->isValid()) {
-            throw new Exception("Cannot read contents of invalid uploaded file.");
+            throw new StorageError("Cannot read contents of invalid uploaded file.");
         }
         return file_get_contents($this->tempName);
     }
@@ -95,12 +95,12 @@ class UploadedFile
      * @param string|null $directory 目标目录（如果为 null，则从配置读取 upload.path）
      * @param string|null $name 可选的新文件名，如果不传则生成随机名
      * @return string 返回保存的完整路径
-     * @throws Exception
+     * @throws StorageError
      */
     public function move(?string $directory = null, ?string $name = null): string
     {
         if (!$this->isValid()) {
-            throw new Exception("Cannot move invalid uploaded file. Error code: {$this->error}");
+            throw new StorageError("Cannot move invalid uploaded file. Error code: {$this->error}");
         }
 
         $defaultUploadPath = defined('BASE_PATH') ? BASE_PATH . '/run/storage' : sys_get_temp_dir();
@@ -108,7 +108,7 @@ class UploadedFile
 
         if (!is_dir($directory)) {
             if (!mkdir($directory, 0755, true) && !is_dir($directory)) {
-                throw new Exception("Directory '{$directory}' was not created");
+                throw new StorageError("Directory '{$directory}' was not created");
             }
         }
 
@@ -120,17 +120,17 @@ class UploadedFile
         $targetDir = dirname($targetPath);
         if (!is_dir($targetDir)) {
             if (!mkdir($targetDir, 0755, true) && !is_dir($targetDir)) {
-                throw new Exception("Directory '{$targetDir}' was not created");
+                throw new StorageError("Directory '{$targetDir}' was not created");
             }
         }
 
         $targetDirectory = realpath($targetDir);
         if ($realDirectory === false || $targetDirectory === false || !$this->isInsideDirectory($targetDirectory, $realDirectory)) {
-            throw new Exception("Invalid upload target path.");
+            throw new StorageError("Invalid upload target path.");
         }
 
         if (!move_uploaded_file($this->tempName, $targetPath)) {
-            throw new Exception("Could not move the file to '{$targetPath}'");
+            throw new StorageError("Could not move the file to '{$targetPath}'");
         }
 
         return $targetPath;
@@ -142,7 +142,7 @@ class UploadedFile
         $name = ltrim($name, '/');
 
         if ($name === '' || str_contains($name, '..') || preg_match('#^[A-Za-z]:/#', $name)) {
-            throw new Exception("Invalid uploaded file name.");
+            throw new StorageError("Invalid uploaded file name.");
         }
 
         return $name;

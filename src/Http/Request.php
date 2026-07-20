@@ -46,14 +46,20 @@ class Request
      */
     protected array $files = [];
 
-    public function __construct()
-    {
-        $this->get = $_GET;
-        $this->post = $_POST;
-        $this->server = $_SERVER;
-        $this->header = $this->parseHeaders();
-        $this->body = $this->parseBody();
-        $this->files = $this->parseFiles();
+    public function __construct(
+        ?array $get = null,
+        ?array $post = null,
+        ?array $server = null,
+        ?array $header = null,
+        mixed $body = null,
+        ?array $files = null,
+    ) {
+        $this->get = $get ?? $_GET;
+        $this->post = $post ?? $_POST;
+        $this->server = $server ?? $_SERVER;
+        $this->header = $header ?? $this->parseHeaders();
+        $this->body = $body ?? $this->parseBody();
+        $this->files = $files ?? $this->parseFiles();
     }
 
     /**
@@ -173,40 +179,114 @@ class Request
 
     /**
      * 获取客户端 IP 地址
+     *
+     * 默认只信任 REMOTE_ADDR。仅当 REMOTE_ADDR 在 app.trusted_proxies 中时，
+     * 才会解析 X-Forwarded-For / Client-IP。
+     *
      * @return string
      */
     public function ip(): string
     {
-        // 可能的IP来源数组
-        $sources = [
-            'HTTP_CLIENT_IP',
-            'HTTP_X_FORWARDED_FOR',
-            'REMOTE_ADDR'
-        ];
+        $remoteAddr = (string) ($this->server['REMOTE_ADDR'] ?? '');
+        if ($remoteAddr === '::1') {
+            $remoteAddr = '127.0.0.1';
+        }
 
-        foreach ($sources as $source) {
-            if (!empty($this->server[$source])) {
-                $ip = $this->server[$source];
+        $trustedProxies = $this->trustedProxies();
+        $fromProxy = $trustedProxies !== [] && $this->isTrustedProxy($remoteAddr, $trustedProxies);
 
-                // 处理 X-Forwarded-For 可能包含多个 IP
-                if ($source === 'HTTP_X_FORWARDED_FOR') {
-                    $ips = explode(',', $ip);
-                    $ip = trim($ips[0]);
+        if ($fromProxy) {
+            foreach (['HTTP_CLIENT_IP', 'HTTP_X_FORWARDED_FOR'] as $source) {
+                if (empty($this->server[$source])) {
+                    continue;
                 }
 
-                // 验证IP格式
+                $ip = (string) $this->server[$source];
+                if ($source === 'HTTP_X_FORWARDED_FOR') {
+                    $parts = explode(',', $ip);
+                    $ip = trim((string) ($parts[0] ?? ''));
+                }
+
+                if ($ip === '::1') {
+                    $ip = '127.0.0.1';
+                }
+
                 if (filter_var($ip, FILTER_VALIDATE_IP)) {
-                    // 将IPv6本地回环地址转换为IPv4格式
-                    if ($ip === '::1') {
-                        return '127.0.0.1';
-                    }
                     return $ip;
                 }
             }
         }
 
-        // 所有来源都无法获取有效 IP 时返回默认值
+        if ($remoteAddr !== '' && filter_var($remoteAddr, FILTER_VALIDATE_IP)) {
+            return $remoteAddr;
+        }
+
         return '127.0.0.1';
+    }
+
+    /**
+     * @return list<string>
+     */
+    protected function trustedProxies(): array
+    {
+        $configured = \Anon\Core\Facade\Config::get('app.trusted_proxies', []);
+
+        if (is_string($configured)) {
+            $configured = array_map('trim', explode(',', $configured));
+        }
+
+        if (!is_array($configured)) {
+            return [];
+        }
+
+        return array_values(array_filter(array_map('strval', $configured), static fn (string $v) => $v !== ''));
+    }
+
+    /**
+     * @param list<string> $trustedProxies
+     */
+    protected function isTrustedProxy(string $ip, array $trustedProxies): bool
+    {
+        if ($ip === '' || !filter_var($ip, FILTER_VALIDATE_IP)) {
+            return false;
+        }
+
+        foreach ($trustedProxies as $proxy) {
+            if ($proxy === '*') {
+                return true;
+            }
+
+            if ($proxy === $ip) {
+                return true;
+            }
+
+            // 简单 CIDR 支持，如 10.0.0.0/8
+            if (str_contains($proxy, '/') && $this->ipInCidr($ip, $proxy)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    protected function ipInCidr(string $ip, string $cidr): bool
+    {
+        [$subnet, $mask] = array_pad(explode('/', $cidr, 2), 2, null);
+        if ($subnet === null || $mask === null) {
+            return false;
+        }
+
+        $mask = (int) $mask;
+        $ipLong = ip2long($ip);
+        $subnetLong = ip2long((string) $subnet);
+
+        if ($ipLong === false || $subnetLong === false || $mask < 0 || $mask > 32) {
+            return false;
+        }
+
+        $maskLong = $mask === 0 ? 0 : (-1 << (32 - $mask));
+
+        return ($ipLong & $maskLong) === ($subnetLong & $maskLong);
     }
 
     /**
@@ -488,18 +568,23 @@ class Request
 
     /**
      * 解析HTTP头信息
-
-     * @return array
+     *
+     * @return array<string, string>
      */
     protected function parseHeaders(): array
     {
         $headers = [];
         if (function_exists('getallheaders')) {
-            $headers = getallheaders();
+            $raw = getallheaders();
+            if (is_array($raw)) {
+                foreach ($raw as $name => $value) {
+                    $headers[strtolower((string) $name)] = $value;
+                }
+            }
         } else {
             foreach ($this->server as $name => $value) {
                 if (str_starts_with($name, 'HTTP_')) {
-                    $headerName = str_replace(' ', '-', ucwords(strtolower(str_replace('_', ' ', substr($name, 5)))));
+                    $headerName = strtolower(str_replace('_', '-', substr($name, 5)));
                     $headers[$headerName] = $value;
                 }
             }
@@ -518,7 +603,7 @@ class Request
             return null;
         }
 
-        $contentType = $this->header['Content-Type'] ?? ($this->header['content-type'] ?? '');
+        $contentType = (string) $this->header('Content-Type', '');
         if (str_contains(strtolower($contentType), 'application/json')) {
             return json_decode($rawBody, true);
         }

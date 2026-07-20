@@ -5,6 +5,7 @@ namespace Anon\Core\Database;
 use PDO;
 use PDOException;
 use Throwable;
+use Anon\Core\Exception\Database as DatabaseError;
 use Anon\Core\Facade\Config;
 use Anon\Core\Facade\Env;
 use Anon\Core\Facade\Hook;
@@ -113,22 +114,23 @@ class Connection
                 break;
             case 'mongo':
             case 'mongodb':
-                throw new \Exception("MongoDB requires a separate driver and is not supported by standard PDO.");
+                throw new DatabaseError("MongoDB requires a separate driver and is not supported by standard PDO.");
             default:
-                throw new \Exception("Unsupported database type: {$type}");
+                throw new DatabaseError("Unsupported database type: {$type}");
         }
 
         $options = [
             PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION, // 错误抛出异常
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,       // 默认返回关联数组
             PDO::ATTR_EMULATE_PREPARES   => false,                  // 禁用模拟预处理，使用真实的预处理
-            PDO::ATTR_PERSISTENT         => true,                   // 开启持久化连接
+            // 默认关闭持久连接，避免 PHP-FPM 下连接池被 Worker 占满；可通过 database.persistent 开启
+            PDO::ATTR_PERSISTENT         => (bool) ($this->config['persistent'] ?? false),
         ];
 
         try {
             $this->pdo = new PDO($dsn, $this->config['username'], $this->config['password'], $options);
         } catch (PDOException $e) {
-            throw new \Exception("Database connection failed: " . $e->getMessage());
+            throw new DatabaseError("Database connection failed: " . $e->getMessage(), 0, $e);
         }
     }
 
@@ -140,6 +142,8 @@ class Connection
         $this->getPdo();
         if ($this->transactions === 0) {
             $this->pdo->beginTransaction();
+        } else {
+            $this->pdo->exec('SAVEPOINT anon_sp_' . $this->transactions);
         }
         $this->transactions++;
     }
@@ -152,6 +156,8 @@ class Connection
         $this->getPdo();
         if ($this->transactions === 1) {
             $this->pdo->commit();
+        } elseif ($this->transactions > 1) {
+            $this->pdo->exec('RELEASE SAVEPOINT anon_sp_' . ($this->transactions - 1));
         }
         $this->transactions = max(0, $this->transactions - 1);
     }
@@ -164,6 +170,8 @@ class Connection
         $this->getPdo();
         if ($this->transactions === 1) {
             $this->pdo->rollBack();
+        } elseif ($this->transactions > 1) {
+            $this->pdo->exec('ROLLBACK TO SAVEPOINT anon_sp_' . ($this->transactions - 1));
         }
         $this->transactions = max(0, $this->transactions - 1);
     }
@@ -198,7 +206,7 @@ class Connection
 
     public function schema(): mixed
     {
-        throw new \RuntimeException('Schema helper is not available for the current database connection.');
+        throw new DatabaseError('Schema helper is not available for the current database connection.');
     }
 
     /**

@@ -4,9 +4,9 @@ namespace Anon\Core\Database\Mongo;
 
 use Anon\Core\Database\Connection as BaseConnection;
 use Anon\Core\Database\QueryBuilder as BaseQueryBuilder;
+use Anon\Core\Exception\Database as DatabaseError;
 use DateTimeInterface;
 use PDO;
-use RuntimeException;
 
 class Connection extends BaseConnection
 {
@@ -15,7 +15,7 @@ class Connection extends BaseConnection
 
     public function getPdo(): PDO
     {
-        throw new RuntimeException('PDO is not available for MongoDB connections.');
+        throw new DatabaseError('PDO is not available for MongoDB connections.');
     }
 
     public function getManager(): object
@@ -30,7 +30,7 @@ class Connection extends BaseConnection
     protected function connect(): void
     {
         if (!class_exists(\MongoDB\Driver\Manager::class)) {
-            throw new RuntimeException('MongoDB driver support requires the ext-mongodb extension.');
+            throw new DatabaseError('MongoDB driver support requires the ext-mongodb extension.');
         }
 
         $managerClass = \MongoDB\Driver\Manager::class;
@@ -74,15 +74,16 @@ class Connection extends BaseConnection
         }
 
         $queryString = $query === [] ? '' : ('?' . http_build_query($query));
+        $databaseSegment = $database !== '' ? rawurlencode($database) : '';
 
-        return "mongodb://{$credentials}{$host}:{$port}/{$database}{$queryString}";
+        return "mongodb://{$credentials}{$host}:{$port}/{$databaseSegment}{$queryString}";
     }
 
     public function getDatabaseName(): string
     {
         $database = trim((string) ($this->config['database'] ?? ''));
         if ($database === '') {
-            throw new RuntimeException('MongoDB database name cannot be empty.');
+            throw new DatabaseError('MongoDB database name cannot be empty.');
         }
 
         return $database;
@@ -110,17 +111,17 @@ class Connection extends BaseConnection
 
     public function select(string $sql, array $bindings = []): array
     {
-        throw new RuntimeException('Raw SQL select is not supported by MongoDB connections.');
+        throw new DatabaseError('Raw SQL select is not supported by MongoDB connections.');
     }
 
     public function statement(string $sql, array $bindings = []): int
     {
-        throw new RuntimeException('Raw SQL statement is not supported by MongoDB connections.');
+        throw new DatabaseError('Raw SQL statement is not supported by MongoDB connections.');
     }
 
     public function lastInsertId(?string $sequence = null): string
     {
-        throw new RuntimeException('lastInsertId() is not available for MongoDB connections.');
+        throw new DatabaseError('lastInsertId() is not available for MongoDB connections.');
     }
 
     public function beginTransaction(): void
@@ -128,7 +129,7 @@ class Connection extends BaseConnection
         $this->getManager();
 
         if (!method_exists($this->manager, 'startSession')) {
-            throw new RuntimeException('MongoDB transactions require session support.');
+            throw new DatabaseError('MongoDB transactions require session support.');
         }
 
         if ($this->transactions === 0) {
@@ -229,20 +230,27 @@ class Connection extends BaseConnection
         return $this->normalizeIdentifier($id);
     }
 
-    public function insertMany(string $collection, array $documents): int
+    /**
+     * 批量插入；返回插入文档的 ID 列表（与 insertOne 一致以 ID 为主语义）
+     *
+     * @param list<array<string, mixed>> $documents
+     * @return list<string>
+     */
+    public function insertMany(string $collection, array $documents): array
     {
         if ($documents === []) {
-            return 0;
+            return [];
         }
 
         $bulk = $this->newBulkWrite();
+        $ids = [];
         foreach ($documents as $document) {
-            $bulk->insert($this->normalizeWriteDocument($document));
+            $ids[] = $this->normalizeIdentifier($bulk->insert($this->normalizeWriteDocument($document)));
         }
 
-        $result = $this->executeBulkWrite($collection, $bulk);
+        $this->executeBulkWrite($collection, $bulk);
 
-        return (int) $result->getInsertedCount();
+        return $ids;
     }
 
     public function updateMany(string $collection, array $filter, array $update, array $options = []): int
@@ -336,7 +344,9 @@ class Connection extends BaseConnection
 
     public function dropIndex(string $collection, string|array $index): bool
     {
+        // 字符串：索引名；数组：规范化后的键文档（MongoDB dropIndexes 支持 key pattern）
         $target = is_array($index) ? $this->normalizeIndexKeys($index) : $index;
+
         $this->executeDatabaseCommand([
             'dropIndexes' => $collection,
             'index' => $target,
@@ -472,9 +482,8 @@ class Connection extends BaseConnection
 
     protected function looksLikeObjectIdField(string $field): bool
     {
-        $field = strtolower(trim($field));
-
-        return $field === '_id' || str_ends_with($field, '_id');
+        // 仅主键 _id 自动转 ObjectId，避免 external_id 等字段被误转换
+        return strtolower(trim($field)) === '_id';
     }
 
     protected function isListArray(array $value): bool
@@ -495,14 +504,14 @@ class Connection extends BaseConnection
         $normalized = [];
         foreach ($keys as $field => $direction) {
             if (!is_string($field) || $field === '') {
-                throw new RuntimeException('MongoDB index keys must use non-empty string field names.');
+                throw new DatabaseError('MongoDB index keys must use non-empty string field names.');
             }
 
             $normalized[$field] = match (true) {
                 is_int($direction) => $direction >= 0 ? 1 : -1,
                 is_float($direction) => $direction >= 0 ? 1 : -1,
                 is_string($direction) => $this->normalizeIndexDirection($direction),
-                default => throw new RuntimeException('MongoDB index direction must be int, float or string.'),
+                default => throw new DatabaseError('MongoDB index direction must be int, float or string.'),
             };
         }
 
@@ -515,7 +524,7 @@ class Connection extends BaseConnection
             '1', 'asc', 'ascending' => 1,
             '-1', 'desc', 'descending' => -1,
             'text', 'hashed', '2dsphere', '2d', 'geoHaystack' => $direction,
-            default => throw new RuntimeException("Unsupported MongoDB index direction [{$direction}]."),
+            default => throw new DatabaseError("Unsupported MongoDB index direction [{$direction}]."),
         };
     }
 

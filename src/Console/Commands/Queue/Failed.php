@@ -3,8 +3,8 @@
 namespace Anon\Core\Console\Commands\Queue;
 
 use Anon\Core\Console\Command;
-use Anon\Core\Queue\Job;
 use Anon\Core\Queue\Manager;
+use Throwable;
 
 class Failed extends Command
 {
@@ -37,12 +37,11 @@ class Failed extends Command
             $rows = [];
 
             foreach ($items as $payload) {
-                $jobClass = $this->resolveJobClass($payload);
+                $jobClass = $this->resolveJobClass($queue, $payload);
                 $failedAt = isset($payload['failed_at']) ? date('Y-m-d H:i:s', (int) $payload['failed_at']) : '-';
                 $attempts = (int) ($payload['attempts'] ?? 0);
                 $maxTries = (int) ($payload['max_tries'] ?? 0);
                 $lastError = (string) ($payload['last_error'] ?? '-');
-                // 截断过长的错误信息
                 if (mb_strlen($lastError) > 50) {
                     $lastError = mb_substr($lastError, 0, 47) . '...';
                 }
@@ -52,14 +51,14 @@ class Failed extends Command
                     $jobClass,
                     "{$attempts}/{$maxTries}",
                     $failedAt,
-                    $lastError
+                    $lastError,
                 ];
             }
 
             $this->table($headers, $rows);
 
             return 0;
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             $this->error('Unable to read failed jobs: ' . $e->getMessage());
             return 1;
         }
@@ -68,14 +67,12 @@ class Failed extends Command
     /**
      * @param array<string, mixed> $payload
      */
-    protected function resolveJobClass(array $payload): string
+    protected function resolveJobClass(Manager $queue, array $payload): string
     {
-        $job = @unserialize((string) ($payload['job'] ?? ''));
-
-        if ($job instanceof Job) {
-            return get_class($job);
+        try {
+            return $queue->resolveJob($payload)::class;
+        } catch (Throwable) {
+            return 'UnknownJob';
         }
-
-        return 'UnknownJob';
     }
 }

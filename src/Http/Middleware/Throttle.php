@@ -37,7 +37,7 @@ class Throttle
 
         // 可以在响应头中加入 X-RateLimit 等信息
         $response->withHeader('X-RateLimit-Limit', (string)$maxAttempts);
-        $response->withHeader('X-RateLimit-Remaining', (string)max(0, $maxAttempts - Cache::get($key, 0)));
+        $response->withHeader('X-RateLimit-Remaining', (string)max(0, $maxAttempts - (int) Cache::get($key, 0)));
 
         return $response;
     }
@@ -55,19 +55,33 @@ class Throttle
      */
     protected function tooManyAttempts(string $key, int $maxAttempts): bool
     {
-        $attempts = (int)Cache::get($key, 0);
+        $attempts = (int) Cache::get($key, 0);
         return $attempts >= $maxAttempts;
     }
 
     /**
-     * 增加访问次数
+     * 原子递增访问次数；首次创建键时设置 TTL。
+     *
+     * 使用 increment（Redis INCR / File 文件锁）避免 has+set 竞态。
      */
     protected function hit(string $key, int $decaySeconds): void
     {
-        if (!Cache::has($key)) {
+        $attempts = Cache::increment($key);
+
+        if ($attempts === false) {
             Cache::set($key, 1, $decaySeconds);
-        } else {
-            Cache::increment($key);
+            return;
+        }
+
+        // 仅在首次从 0→1 时设置过期，避免并发下互相覆盖计数值
+        if ((int) $attempts === 1 && $decaySeconds > 0) {
+            $store = Cache::store();
+            if (method_exists($store, 'expire')) {
+                $store->expire($key, $decaySeconds);
+            } else {
+                // File 等驱动：带锁重写值+TTL；此时 attempts 必为 1
+                Cache::set($key, 1, $decaySeconds);
+            }
         }
     }
 }

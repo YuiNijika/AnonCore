@@ -2,46 +2,47 @@
 
 namespace Anon\Core\Queue;
 
-use Exception;
 use Throwable;
 use Redis as PhpRedis;
+use Anon\Core\Exception\Deprecated;
+use Anon\Core\Exception\Queue as QueueError;
 use Anon\Core\Facade\Config;
 use Anon\Core\Facade\Env;
 use Anon\Core\Facade\Hook;
+use Anon\Core\Support\RedisConnector;
 
 class Manager
 {
     protected ?PhpRedis $redis = null;
     protected string $defaultQueue = 'default';
-    protected string $prefix;
+    protected string $prefix = 'anon:queue:';
     protected int $defaultMaxTries = 3;
+    protected bool $redisResolved = false;
 
     public function __construct()
     {
-        if (extension_loaded('redis')) {
-            $redisConfig = Config::get('queue.redis', Config::get('cache.redis', Config::get('redis', [])));
-            $queueConfig = Config::get('queue', []);
+        $this->prefix = (string) Config::get('queue.prefix', Env::get('QUEUE_PREFIX', 'anon:queue:'));
+        $this->defaultQueue = (string) Config::get('queue.default', 'default');
+        $this->defaultMaxTries = (int) Config::get('queue.max_tries', 3);
+    }
 
-            $host = is_array($redisConfig) ? ($redisConfig['host'] ?? Env::get('REDIS_HOST', '127.0.0.1')) : Env::get('REDIS_HOST', '127.0.0.1');
-            $port = is_array($redisConfig) ? ($redisConfig['port'] ?? Env::get('REDIS_PORT', 6379)) : Env::get('REDIS_PORT', 6379);
-            $password = is_array($redisConfig) ? ($redisConfig['password'] ?? Env::get('REDIS_PASSWORD', '')) : Env::get('REDIS_PASSWORD', '');
-            $database = is_array($redisConfig) ? ($redisConfig['database'] ?? Env::get('REDIS_DB', 0)) : Env::get('REDIS_DB', 0);
-
-            $this->prefix = (string) Config::get('queue.prefix', Env::get('QUEUE_PREFIX', 'anon:queue:'));
-            $this->defaultQueue = (string) Config::get('queue.default', 'default');
-            $this->defaultMaxTries = (int) Config::get('queue.max_tries', 3);
-
-            $this->redis = new PhpRedis();
-            $this->redis->connect($host, $port);
-
-            if ($password !== '') {
-                $this->redis->auth($password);
-            }
-
-            if ($database !== 0) {
-                $this->redis->select($database);
-            }
+    /**
+     * 延迟连接 Redis：仅在首次 push/pop 等操作时建立，避免未使用队列时拖垮启动。
+     */
+    protected function connection(): PhpRedis
+    {
+        if ($this->redis instanceof PhpRedis) {
+            return $this->redis;
         }
+
+        if ($this->redisResolved) {
+            throw new QueueError('Queue Redis connection was already resolved but is unavailable.');
+        }
+
+        $this->redisResolved = true;
+        $this->redis = RedisConnector::connect('queue.redis', ['queue.redis', 'cache.redis', 'redis']);
+
+        return $this->redis;
     }
 
     /**
@@ -49,28 +50,31 @@ class Manager
      */
     public function push(Job $job, ?string $queue = null, int $delay = 0, ?int $maxTries = null): bool
     {
-        if (!$this->redis) {
-            throw new Exception("Redis extension is required for Queue.");
-        }
+        $redis = $this->connection();
 
         $queue = $queue ?? $this->defaultQueue;
         $payload = $this->createPayload($job, $queue, $maxTries);
-        
+
         Hook::trigger('queue_push', ['job' => $job, 'queue' => $queue, 'delay' => $delay, 'payload' => $payload]);
 
         if ($delay > 0) {
-            return $this->redis->zAdd(
+            return $redis->zAdd(
                 $this->delayedQueueKey($queue),
                 time() + $delay,
                 $this->encodePayload($payload)
             ) !== false;
         }
 
-        return $this->redis->lPush($this->queueKey($queue), $this->encodePayload($payload)) !== false;
+        return $redis->lPush($this->queueKey($queue), $this->encodePayload($payload)) !== false;
     }
 
     /**
-     * 从队列中弹出并执行任�?     */
+     * 从队列中弹出并执行任务（阻塞模式）
+     *
+     * @param string|null $queue 队列名称
+     * @param int $timeout 阻塞超时时间(秒)
+     * @return Job|null 返回任务实例，超时返回 null
+     */
     public function pop(?string $queue = null, int $timeout = 3): ?Job
     {
         $payload = $this->popPayload($queue, $timeout);
@@ -82,12 +86,15 @@ class Manager
     }
 
     /**
-     * 从队列中弹出原始任务�?     */
+     * 从队列中弹出原始任务载荷
+     *
+     * @param string|null $queue 队列名称
+     * @param int $timeout 阻塞超时时间(秒)
+     * @return array<string, mixed>|null
+     */
     public function popPayload(?string $queue = null, int $timeout = 3): ?array
     {
-        if (!$this->redis) {
-            throw new Exception("Redis extension is required for Queue.");
-        }
+        $this->connection();
 
         $queue = $queue ?? $this->defaultQueue;
         $this->migrateDelayedJobs($queue);
@@ -101,12 +108,11 @@ class Manager
     }
 
     /**
-     * 将任务重新入�?     */
+     * 将任务重新入队
+     */
     public function release(array $payload, int $delay = 0, ?Throwable $exception = null): bool
     {
-        if (!$this->redis) {
-            throw new Exception("Redis extension is required for Queue.");
-        }
+        $this->connection();
 
         $payload['attempts'] = ((int) ($payload['attempts'] ?? 0)) + 1;
         $payload['last_error'] = $exception?->getMessage();
@@ -127,9 +133,7 @@ class Manager
      */
     public function fail(array $payload, ?Throwable $exception = null): bool
     {
-        if (!$this->redis) {
-            throw new Exception("Redis extension is required for Queue.");
-        }
+        $this->connection();
 
         $payload['attempts'] = ((int) ($payload['attempts'] ?? 0)) + 1;
         $payload['failed_at'] = time();
@@ -140,7 +144,8 @@ class Manager
     }
 
     /**
-     * 判断任务是否还可以重�?     */
+     * 判断任务是否还可以重试
+     */
     public function canRetry(array $payload): bool
     {
         $attempts = (int) ($payload['attempts'] ?? 0);
@@ -156,9 +161,7 @@ class Manager
      */
     public function failed(?string $queue = null, int $limit = 20, int $offset = 0): array
     {
-        if (!$this->redis) {
-            throw new Exception("Redis extension is required for Queue.");
-        }
+        $this->connection();
 
         $queue = $queue ?? $this->defaultQueue;
         $end = $limit > 0 ? ($offset + $limit - 1) : -1;
@@ -185,21 +188,18 @@ class Manager
      */
     public function failedCount(?string $queue = null): int
     {
-        if (!$this->redis) {
-            throw new Exception("Redis extension is required for Queue.");
-        }
+        $this->connection();
 
         $queue = $queue ?? $this->defaultQueue;
         return (int) $this->redis->lLen($this->failedQueueKey($queue));
     }
 
     /**
-     * 将指定失败任务重新放回队�?     */
+     * 将指定失败任务重新放回队列
+     */
     public function retryFailed(string $id, ?string $queue = null, int $delay = 0): bool
     {
-        if (!$this->redis) {
-            throw new Exception("Redis extension is required for Queue.");
-        }
+        $this->connection();
 
         $queue = $queue ?? $this->defaultQueue;
         $record = $this->findFailedRecord($queue, $id);
@@ -221,28 +221,20 @@ class Manager
      */
     public function retryAllFailed(?string $queue = null, int $delay = 0): int
     {
-        if (!$this->redis) {
-            throw new Exception("Redis extension is required for Queue.");
-        }
+        $redis = $this->connection();
 
         $queue = $queue ?? $this->defaultQueue;
-        $items = $this->redis->lRange($this->failedQueueKey($queue), 0, -1);
-        if (!is_array($items) || $items === []) {
-            return 0;
-        }
+        $failedKey = $this->failedQueueKey($queue);
 
+        // 原子 RPOP，避免 lRange + lRem 竞态导致同一任务被多个进程重复重试
         $retried = 0;
-        foreach ($items as $item) {
-            if (!is_string($item)) {
-                continue;
+        while (true) {
+            $item = $redis->rPop($failedKey);
+            if ($item === false || !is_string($item)) {
+                break;
             }
 
             $payload = $this->decodePayload($item);
-            $removed = $this->redis->lRem($this->failedQueueKey($queue), $item, 1);
-            if ($removed === false || $removed < 1) {
-                continue;
-            }
-
             if ($this->pushRetryPayload($payload, $queue, $delay)) {
                 $retried++;
             }
@@ -256,9 +248,7 @@ class Manager
      */
     public function clearFailed(?string $queue = null): int
     {
-        if (!$this->redis) {
-            throw new Exception("Redis extension is required for Queue.");
-        }
+        $this->connection();
 
         $queue = $queue ?? $this->defaultQueue;
         $count = (int) $this->redis->lLen($this->failedQueueKey($queue));
@@ -302,7 +292,7 @@ class Manager
     {
         $encoded = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         if ($encoded === false) {
-            throw new Exception('Failed to encode queue payload.');
+            throw new QueueError('Failed to encode queue payload.');
         }
 
         return $encoded;
@@ -312,7 +302,7 @@ class Manager
     {
         $decoded = json_decode($payload, true);
         if (!is_array($decoded)) {
-            throw new Exception('Invalid queue payload.');
+            throw new QueueError('Invalid queue payload.');
         }
 
         return $decoded;
@@ -320,14 +310,76 @@ class Manager
 
     protected function decodeJob(array $payload): Job
     {
-        $job = unserialize((string) ($payload['job'] ?? ''));
+        $raw = (string) ($payload['job'] ?? '');
+        if ($raw === '') {
+            throw new QueueError('Invalid queue job payload.');
+        }
+
+        // 仅允许白名单类，防止对象注入 RCE
+        $allowed = $this->allowedJobClasses();
+        $job = @unserialize($raw, ['allowed_classes' => $allowed]);
+
         if (!$job instanceof Job) {
-            throw new Exception('Invalid queue job payload.');
+            throw new QueueError('Invalid queue job payload.');
         }
 
         return $job;
     }
 
+    /**
+     * 从载荷安全还原 Job（白名单反序列化）。
+     *
+     * @param array<string, mixed> $payload
+     */
+    public function resolveJob(array $payload): Job
+    {
+        return $this->decodeJob($payload);
+    }
+
+    /**
+     * @deprecated 无限制反序列化已移除；请配置 queue.allowed_job_classes 为 class-string 列表。
+     * @throws \Anon\Core\Exception\Deprecated
+     */
+    public function allowUnsafeJobUnserialize(): never
+    {
+        throw Deprecated::method(
+            __METHOD__,
+            'queue.allowed_job_classes as an explicit class-string[] allowlist'
+        );
+    }
+
+    /**
+     * @return list<class-string>
+     */
+    protected function allowedJobClasses(): array
+    {
+        $configured = Config::get('queue.allowed_job_classes', null);
+
+        // 不再兼容 true / '*' 全量反序列化
+        if ($configured === true || $configured === '*') {
+            throw Deprecated::config(
+                'queue.allowed_job_classes=true|\'*\'',
+                'Configure an explicit list of Job class names instead.'
+            );
+        }
+
+        $classes = [Job::class];
+
+        if (is_array($configured)) {
+            foreach ($configured as $class) {
+                if (is_string($class) && $class !== '') {
+                    $classes[] = $class;
+                }
+            }
+        }
+
+        return array_values(array_unique($classes));
+    }
+
+    /**
+     * 将到期延迟任务迁移到就绪队列。
+     * 每批 100 条，循环直到本轮没有到期项，避免单次 pop 只迁 100 导致积压。
+     */
     protected function migrateDelayedJobs(string $queue): void
     {
         if (!$this->redis) {
@@ -335,15 +387,32 @@ class Manager
         }
 
         $delayedKey = $this->delayedQueueKey($queue);
-        $duePayloads = $this->redis->zRangeByScore($delayedKey, '-inf', (string) time(), ['limit' => [0, 100]]);
+        $readyKey = $this->queueKey($queue);
+        $now = (string) time();
+        $batchSize = 100;
+        // 硬上限防止异常情况下死循环
+        $maxBatches = 50;
 
-        if (!is_array($duePayloads) || $duePayloads === []) {
-            return;
-        }
+        for ($batch = 0; $batch < $maxBatches; $batch++) {
+            $duePayloads = $this->redis->zRangeByScore(
+                $delayedKey,
+                '-inf',
+                $now,
+                ['limit' => [0, $batchSize]]
+            );
 
-        foreach ($duePayloads as $payload) {
-            if ($this->redis->zRem($delayedKey, $payload) > 0) {
-                $this->redis->lPush($this->queueKey($queue), $payload);
+            if (!is_array($duePayloads) || $duePayloads === []) {
+                return;
+            }
+
+            foreach ($duePayloads as $payload) {
+                if ($this->redis->zRem($delayedKey, $payload) > 0) {
+                    $this->redis->lPush($readyKey, $payload);
+                }
+            }
+
+            if (count($duePayloads) < $batchSize) {
+                return;
             }
         }
     }

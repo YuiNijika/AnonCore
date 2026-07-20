@@ -2,19 +2,19 @@
 
 namespace Anon\Core\Facade;
 
+use Anon\Core\Exception\Base as CoreError;
 use Anon\Core\Foundation\App;
-use RuntimeException;
 
 abstract class Facade
 {
     /**
      * 获取门面代理的组件名称
      * @return string
-     * @throws RuntimeException
+     * @throws CoreError
      */
     protected static function getFacadeAccessor(): string
     {
-        throw new RuntimeException('Facade does not implement getFacadeAccessor method.');
+        throw new CoreError('Facade does not implement getFacadeAccessor method.');
     }
 
     /**
@@ -34,7 +34,7 @@ abstract class Facade
         $instance = static::resolveFacadeInstance(static::getFacadeAccessor());
 
         if (!$instance) {
-            throw new RuntimeException('A facade root has not been set.');
+            throw new CoreError('A facade root has not been set.');
         }
 
         return call_user_func_array([$instance, $method], $args);

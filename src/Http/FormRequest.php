@@ -51,9 +51,20 @@ abstract class FormRequest extends Request
 
     /**
      * 获取参与验证的输入数据
+     *
+     * - GET：query + 路由参数
+     * - 写方法：body / post 优先，query 仅作补充，路由参数最后覆盖
      */
     public function validationData(): array
     {
-        return array_merge($this->get, $this->post, is_array($this->body) ? $this->body : []);
+        $route = $this->getRouteParams();
+        $body = is_array($this->body) ? $this->body : [];
+
+        if ($this->isMethod('GET') || $this->isMethod('HEAD')) {
+            return array_merge($this->get, $route);
+        }
+
+        // 写请求：body 覆盖 post 覆盖 query；route 最高优先级（URI 段不可被 body 篡改）
+        return array_merge($this->get, $this->post, $body, $route);
     }
 }

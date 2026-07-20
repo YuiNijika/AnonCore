@@ -2,6 +2,8 @@
 
 namespace Anon\Core\Database;
 
+use Anon\Core\Exception\Database as DatabaseError;
+
 class QueryBuilder
 {
     /**
@@ -1351,9 +1353,9 @@ class QueryBuilder
                 ($not ? 'NOT ' : '') . "REGEXP_LIKE({$column}, ?, ?)",
                 [$pattern, $caseSensitive ? 'c' : 'i'],
             ],
-            'sqlite' => throw new \RuntimeException('SQLite regex queries require a custom REGEXP function and are not enabled by default.'),
-            'sqlsrv' => throw new \RuntimeException('SQL Server does not provide a portable native regex operator in the current QueryBuilder.'),
-            default => throw new \RuntimeException("Regex queries are not supported for driver [{$driver}]."),
+            'sqlite' => throw new DatabaseError('SQLite regex queries require a custom REGEXP function and are not enabled by default.'),
+            'sqlsrv' => throw new DatabaseError('SQL Server does not provide a portable native regex operator in the current QueryBuilder.'),
+            default => throw new DatabaseError("Regex queries are not supported for driver [{$driver}]."),
         };
     }
 
@@ -1434,7 +1436,7 @@ class QueryBuilder
                 $this->buildJsonDocumentExpression($column, $path) . ' ' . ($not ? 'NOT ' : '') . '@> CAST(? AS jsonb)',
                 [$jsonValue],
             ],
-            default => throw new \RuntimeException("JSON contains queries are not supported for driver [{$driver}]."),
+            default => throw new DatabaseError("JSON contains queries are not supported for driver [{$driver}]."),
         };
     }
 
@@ -1449,7 +1451,7 @@ class QueryBuilder
             'pgsql' => $wrappedColumn . " #>> '{" . implode(',', $segments) . "}'",
             'sqlite' => 'json_extract(' . $wrappedColumn . ", '" . $this->buildJsonPathLiteral($segments) . "')",
             'sqlsrv', 'oracle', 'oci' => 'JSON_VALUE(' . $wrappedColumn . ", '" . $this->buildJsonPathLiteral($segments) . "')",
-            default => throw new \RuntimeException("JSON value queries are not supported for driver [{$driver}]."),
+            default => throw new DatabaseError("JSON value queries are not supported for driver [{$driver}]."),
         };
     }
 
@@ -1463,7 +1465,7 @@ class QueryBuilder
             'pgsql' => $segments === []
                 ? '(' . $wrappedColumn . ')::jsonb'
                 : '((' . $wrappedColumn . ")::jsonb #> '{" . implode(',', $segments) . "}')",
-            default => throw new \RuntimeException("JSON document queries are not supported for driver [{$driver}]."),
+            default => throw new DatabaseError("JSON document queries are not supported for driver [{$driver}]."),
         };
     }
 

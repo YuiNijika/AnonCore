@@ -7,6 +7,7 @@ use ArrayAccess;
 use Anon\Core\Database\Model\QueryBuilder as ModelQueryBuilder;
 use Anon\Core\Database\Mongo\Connection as MongoConnection;
 use Anon\Core\Database\Mongo\ModelQueryBuilder as MongoModelQueryBuilder;
+use Anon\Core\Exception\Database as DatabaseError;
 use Anon\Core\Support\Str;
 use Anon\Core\Database\Relations\HasOne;
 use Anon\Core\Database\Relations\HasMany;
@@ -223,9 +224,10 @@ abstract class Model implements JsonSerializable, ArrayAccess
     public function getTable(): string
     {
         if (empty($this->table)) {
-            // 默认表名为类名的蛇形复数 (这里做简单小写处理)
             $class = explode('\\', static::class);
-            $this->table = strtolower(end($class)) . 's';
+            $base = (string) end($class);
+            // UserSetting → user_settings
+            $this->table = Str::snake($base) . 's';
         }
         return $this->table;
     }
@@ -417,11 +419,12 @@ abstract class Model implements JsonSerializable, ArrayAccess
                 return false;
             }
 
-            $query->where($this->getKeyName(), $this->getKey())
-                  ->update($this->attributes);
-            
-            $saved = true;
-            
+            $affected = $query->where($this->getKeyName(), $this->getKey())
+                ->update($this->attributes);
+
+            // update() 返回受影响行数；PDO 成功执行即视为成功，0 行也可能是值未变化
+            $saved = $affected !== false && $affected >= 0;
+
             if ($saved) {
                 $this->fireEvent('updated');
             }
@@ -432,7 +435,7 @@ abstract class Model implements JsonSerializable, ArrayAccess
 
             $id = $query->insert($this->attributes);
             
-            // 如果外部已经设置了主键（如 UUID），lastInsertId 可能为空，此时也算成功
+            // 如果外部已经设置了主键，lastInsertId 可能为空，此时也算成功
             $pkValue = $this->getKey();
             
             if ($pkValue !== null) {
@@ -463,7 +466,7 @@ abstract class Model implements JsonSerializable, ArrayAccess
     public function delete(): bool
     {
         if ($this->getKey() === null) {
-            throw new \Exception('No primary key defined on model.');
+            throw new DatabaseError('No primary key defined on model.');
         }
 
         if ($this->fireEvent('deleting') === false) {
@@ -498,7 +501,7 @@ abstract class Model implements JsonSerializable, ArrayAccess
     public function forceDelete(): bool
     {
         if ($this->getKey() === null) {
-            throw new \Exception('No primary key defined on model.');
+            throw new DatabaseError('No primary key defined on model.');
         }
 
         if ($this->exists) {

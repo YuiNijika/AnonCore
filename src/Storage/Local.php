@@ -25,7 +25,7 @@ class Local implements Contract
         $realRoot = realpath($this->root);
 
         if ($realRoot === false) {
-            throw new \RuntimeException('Storage root is not available.');
+            throw new \Anon\Core\Exception\Storage('Storage root is not available.');
         }
 
         $target = $realRoot . DIRECTORY_SEPARATOR . $relativePath;

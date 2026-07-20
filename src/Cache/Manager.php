@@ -2,7 +2,7 @@
 
 namespace Anon\Core\Cache;
 
-use Exception;
+use Anon\Core\Exception\Cache as CacheError;
 use Anon\Core\Facade\Config;
 use Anon\Core\Facade\Env;
 
@@ -50,7 +50,7 @@ class Manager implements Contract
             case 'redis':
                 return new Redis();
             default:
-                throw new Exception("Cache driver [{$name}] is not supported.");
+                throw new CacheError("Cache driver [{$name}] is not supported.");
         }
     }
 

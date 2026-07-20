@@ -6,7 +6,7 @@ use Closure;
 use ReflectionClass;
 use ReflectionMethod;
 use ReflectionException;
-use Exception;
+use Anon\Core\Exception\Container as ContainerError;
 
 class Container
 {
@@ -100,7 +100,7 @@ class Container
 
         // 检测循环依赖
         if (isset($this->buildStack[$abstract])) {
-            throw new Exception("Circular dependency detected while resolving {$abstract}");
+            throw new ContainerError("Circular dependency detected while resolving {$abstract}");
         }
         $this->buildStack[$abstract] = true;
 
@@ -144,11 +144,11 @@ class Container
                 $this->reflectionCache[$class] = $reflect;
             }
         } catch (ReflectionException $e) {
-            throw new Exception("Class {$class} does not exist", 0, $e);
+            throw new ContainerError("Class {$class} does not exist", 0, $e);
         }
 
         if (!$reflect->isInstantiable()) {
-            throw new Exception("Class {$class} is not instantiable");
+            throw new ContainerError("Class {$class} is not instantiable");
         }
 
         $constructor = $reflect->getConstructor();
@@ -207,7 +207,7 @@ class Container
                     $resolved = true;
                 }
                 if (!$resolved) {
-                    throw new Exception("Cannot resolve union type dependency '{$name}' in " . $reflect->getDeclaringClass()->getName());
+                    throw new ContainerError("Cannot resolve union type dependency '{$name}' in " . $reflect->getDeclaringClass()->getName());
                 }
             }
             // 若存在默认值则使用默认值
@@ -216,7 +216,7 @@ class Container
             } 
             // 无法解析时抛出异常
             else {
-                throw new Exception("Cannot resolve dependency '{$name}' in " . $reflect->getDeclaringClass()->getName());
+                throw new ContainerError("Cannot resolve dependency '{$name}' in " . $reflect->getDeclaringClass()->getName());
             }
         }
 

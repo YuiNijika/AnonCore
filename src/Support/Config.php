@@ -12,6 +12,9 @@ class Config
     /**
      * 定义配置项
      *
+     * 供 `anon.config.php` 写成 `return Config::define([...])` 时使用：
+     * 仅回传数组本身，不写入全局状态，也不做结构校验。
+     *
      * @param array<string, mixed> $config
      * @return array<string, mixed>
      */
@@ -88,11 +91,25 @@ class Config
     }
 
     /**
-     * 判断配置项是否存在
+     * 判断配置项是否存在（点号路径，基于 array_key_exists，不依赖哨兵值）
      */
     public function has(string $key): bool
     {
-        return $this->get($key, '__anon_config_missing__') !== '__anon_config_missing__';
+        if ($key === '') {
+            return false;
+        }
+
+        $segments = explode('.', $key);
+        $value = $this->items;
+
+        foreach ($segments as $segment) {
+            if (!is_array($value) || !array_key_exists($segment, $value)) {
+                return false;
+            }
+            $value = $value[$segment];
+        }
+
+        return true;
     }
 
     /**

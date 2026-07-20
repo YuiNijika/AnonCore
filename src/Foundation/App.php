@@ -17,17 +17,12 @@ class App extends Container
     /**
      * @var string 框架版本
      */
-    public const VERSION = 'v4.1.0-next-alpha';
+    public const VERSION = 'v4.1.0-next-rc';
 
     /**
      * @var string 框架名称
      */
     public const NAME = 'Anon Framework Next';
-
-    /**
-     * @var string OpenAPI 版本
-     */
-    public const OPENAPI_VERSION = 'v1.0.0';
 
     /**
      * @var string 应用基础路径
@@ -289,8 +284,6 @@ class App extends Container
      */
     public function handle(Request $request): Response
     {
-        // 捕获请求并分发路由
-        $info = $this->getInfo();
         return Route::dispatch($request);
     }
 
@@ -313,6 +306,25 @@ class App extends Container
      */
     public function handleError(int $errno, string $errstr, string $errfile, int $errline): bool
     {
+        // 仅将致命/可恢复错误转为异常；NOTICE/WARNING/DEPRECATED 交回 PHP 默认处理
+        $fatal = [
+            E_ERROR,
+            E_PARSE,
+            E_CORE_ERROR,
+            E_COMPILE_ERROR,
+            E_USER_ERROR,
+            E_RECOVERABLE_ERROR,
+        ];
+
+        if (!in_array($errno, $fatal, true)) {
+            return false;
+        }
+
+        // error_reporting 关闭的级别不抛
+        if (!(error_reporting() & $errno)) {
+            return false;
+        }
+
         throw new \ErrorException($errstr, 0, $errno, $errfile, $errline);
     }
 

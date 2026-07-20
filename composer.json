@@ -18,7 +18,7 @@
         "ext-mongodb": "Required to use the MongoDB database driver."
     },
     "require": {
-        "php": ">=8.0",
+        "php": ">=8.1",
         "erusev/parsedown": "^1.8",
         "league/flysystem": "^3.28",
         "firebase/php-jwt": "^7.0"

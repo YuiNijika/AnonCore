@@ -359,7 +359,7 @@ class Router
     protected function normalizeActionForCache(mixed $action, string $method, string $uri): array|string
     {
         if ($action instanceof \Closure) {
-            throw new \RuntimeException("Unable to cache route [{$method} {$uri}] because closure actions are not supported.");
+            throw new \Anon\Core\Exception\Routing("Unable to cache route [{$method} {$uri}] because closure actions are not supported.");
         }
 
         if (is_string($action)) {
@@ -370,7 +370,7 @@ class Router
             return [$action[0], $action[1]];
         }
 
-        throw new \RuntimeException("Unable to cache route [{$method} {$uri}] because action type is not cacheable.");
+        throw new \Anon\Core\Exception\Routing("Unable to cache route [{$method} {$uri}] because action type is not cacheable.");
     }
 
     /**
@@ -386,7 +386,7 @@ class Router
             return [$action[0], $action[1]];
         }
 
-        throw new \RuntimeException('Invalid cached route action.');
+        throw new \Anon\Core\Exception\Routing('Invalid cached route action.');
     }
 
     /**
@@ -398,7 +398,7 @@ class Router
 
         foreach ($this->bindings as $name => $binding) {
             if (is_callable($binding)) {
-                throw new \RuntimeException("Unable to cache route binding [{$name}] because closure bindings are not supported.");
+                throw new \Anon\Core\Exception\Routing("Unable to cache route binding [{$name}] because closure bindings are not supported.");
             }
 
             if (is_array($binding) && isset($binding['class'], $binding['key'])) {
@@ -447,12 +447,12 @@ class Router
             $middleware = [$middleware];
         }
 
-        // 如果存在刚注册的单个路由，则是后置调用 Route::get(...)->middleware(...)
+        // 后置调用：Route::get(...)->middleware(...)->middleware(...)
+        // 不清空 lastRouteItems，允许多次链式追加；在 addRoute 时再重置
         if (!empty($this->lastRouteItems)) {
-            $lastItem = end($this->lastRouteItems);
-            $lastItem->middleware($middleware);
-            // 处理完后清空，避免污染后续调用
-            $this->lastRouteItems = [];
+            foreach ($this->lastRouteItems as $item) {
+                $item->middleware($middleware);
+            }
             return $this;
         }
 
@@ -1330,10 +1330,10 @@ class Router
                     $args = $this->resolveMethodDependencies($reflect, $injectParams, $app);
                     $result = call_user_func_array([$controller, $method], $args);
                 } else {
-                    throw new \Exception("Method {$method} not found in controller {$class}");
+                    throw new \Anon\Core\Exception\Routing("Method {$method} not found in controller {$class}");
                 }
             } else {
-                throw new \Exception("Controller class {$class} not found");
+                throw new \Anon\Core\Exception\Routing("Controller class {$class} not found");
             }
         }
         // 如果是字符串形式的控制器调用
@@ -1354,13 +1354,13 @@ class Router
                     $args = $this->resolveMethodDependencies($reflect, $injectParams, $app);
                     $result = call_user_func_array([$controller, $method], $args);
                 } else {
-                    throw new \Exception("Method {$method} not found in controller {$class}");
+                    throw new \Anon\Core\Exception\Routing("Method {$method} not found in controller {$class}");
                 }
             } else {
-                throw new \Exception("Controller class {$class} not found");
+                throw new \Anon\Core\Exception\Routing("Controller class {$class} not found");
             }
         } else {
-            throw new \Exception("Invalid route action type");
+            throw new \Anon\Core\Exception\Routing("Invalid route action type");
         }
 
         if ($result instanceof Response) {

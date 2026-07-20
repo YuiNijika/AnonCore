@@ -2,10 +2,10 @@
 
 namespace Anon\Core\Auth;
 
+use Anon\Core\Exception\Auth as AuthError;
 use Anon\Core\Facade\Cache;
 use Anon\Core\Facade\Config;
 use Anon\Core\Facade\Env;
-use Exception;
 
 class JWTUtil
 {
@@ -45,7 +45,7 @@ class JWTUtil
         $tokenParts = explode('.', $jwt);
 
         if (count($tokenParts) != 3) {
-            throw new Exception("Invalid JWT format");
+            throw new AuthError("Invalid JWT format");
         }
 
         $header = $tokenParts[0];
@@ -56,26 +56,26 @@ class JWTUtil
         $base64UrlSignature = self::base64UrlEncode($signature);
 
         if (!hash_equals($base64UrlSignature, $signatureProvided)) {
-            throw new Exception("Invalid JWT signature");
+            throw new AuthError("Invalid JWT signature");
         }
 
         $decodedPayload = self::base64UrlDecode($payload);
         if ($decodedPayload === false) {
-            throw new Exception("Invalid base64 encoding in payload");
+            throw new AuthError("Invalid base64 encoding in payload");
         }
 
         $payloadData = json_decode($decodedPayload, true);
         if (json_last_error() !== JSON_ERROR_NONE || !is_array($payloadData)) {
-            throw new Exception("Invalid JSON in payload");
+            throw new AuthError("Invalid JSON in payload");
         }
 
         $blacklistPrefix = (string) Config::get('auth.blacklist_prefix', 'auth:blacklist:');
         if (isset($payloadData['jti']) && Cache::has($blacklistPrefix . $payloadData['jti'])) {
-            throw new Exception("JWT has been revoked");
+            throw new AuthError("JWT has been revoked");
         }
 
         if (isset($payloadData['exp']) && $payloadData['exp'] < time()) {
-            throw new Exception("JWT has expired");
+            throw new AuthError("JWT has expired");
         }
 
         return $payloadData;

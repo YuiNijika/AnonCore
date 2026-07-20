@@ -40,7 +40,7 @@ abstract class Migration
         $connection = $this->connection();
 
         if (!$connection instanceof \Anon\Core\Database\Mongo\Connection) {
-            throw new \RuntimeException('Current database connection is not MongoDB.');
+            throw new \Anon\Core\Exception\Database('Current database connection is not MongoDB.');
         }
 
         return $connection;
