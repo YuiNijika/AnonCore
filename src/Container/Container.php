@@ -42,13 +42,26 @@ class Container
 
     /**
      * 获取当前容器的单例实例
+     *
+     * 注意：子类（如 App）不得在此处无参 `new static`——App 构造需要 basePath。
+     * 未引导时对子类调用应抛错，避免 ArgumentCountError。
      */
     public static function getInstance(): static
     {
         if (is_null(static::$instance)) {
-            static::$instance = new static;
+            if (static::class !== self::class) {
+                throw new ContainerError(
+                    static::class . ' has not been bootstrapped. Construct it with the required arguments first (e.g. new App($basePath)).'
+                );
+            }
+
+            static::$instance = new self();
         }
-        return static::$instance;
+
+        /** @var static $instance */
+        $instance = static::$instance;
+
+        return $instance;
     }
 
     /**
