@@ -5,7 +5,6 @@ namespace Anon\Core\Auth;
 use Anon\Core\Exception\Auth as AuthError;
 use Anon\Core\Facade\Cache;
 use Anon\Core\Facade\Config;
-use Anon\Core\Facade\Env;
 
 class JWTUtil
 {
@@ -26,7 +25,7 @@ class JWTUtil
 
     public static function encode(array $payload, ?string $secret = null): string
     {
-        $secret = $secret ?? Env::get('JWT_SECRET', 'anon_secret_key');
+        $secret = SecretResolver::resolve($secret);
         $header = json_encode(['typ' => 'JWT', 'alg' => 'HS256']);
         $payloadJson = json_encode($payload);
 
@@ -41,7 +40,7 @@ class JWTUtil
 
     public static function decode(string $jwt, ?string $secret = null): array
     {
-        $secret = $secret ?? Env::get('JWT_SECRET', 'anon_secret_key');
+        $secret = SecretResolver::resolve($secret);
         $tokenParts = explode('.', $jwt);
 
         if (count($tokenParts) != 3) {

@@ -665,12 +665,15 @@ class Manager
 
     protected function resolveSecret(string $guard): string
     {
-        return (string) $this->resolveGuardConfig($guard, 'secret', Env::get('JWT_SECRET', 'anon_secret_key'));
+        return SecretResolver::resolve((string) Env::get('JWT_SECRET', ''));
     }
 
     protected function resolveRefreshSecret(string $guard): string
     {
-        return (string) $this->resolveGuardConfig($guard, 'refresh_secret', $this->resolveSecret($guard));
+        return SecretResolver::resolve((string) Env::get(
+            'JWT_REFRESH_SECRET',
+            Env::get('JWT_SECRET', '')
+        ));
     }
 
     protected function resolveTtl(string $guard, ?int $ttl = null): int
@@ -925,11 +928,13 @@ class Manager
      */
     protected function resolveCookieOptions(string $guard, int $expires): array
     {
+        $secureDefault = strtolower((string) Env::get('APP_ENV', 'production')) === 'production';
+
         return [
             'expires' => $expires,
             'path' => (string) $this->resolveGuardConfig($guard, 'cookie_path', '/'),
             'domain' => (string) $this->resolveGuardConfig($guard, 'cookie_domain', ''),
-            'secure' => (bool) $this->resolveGuardConfig($guard, 'cookie_secure', false),
+            'secure' => (bool) $this->resolveGuardConfig($guard, 'cookie_secure', $secureDefault),
             'httponly' => (bool) $this->resolveGuardConfig($guard, 'cookie_httponly', true),
             'samesite' => (string) $this->resolveGuardConfig($guard, 'cookie_samesite', 'Lax'),
         ];
@@ -940,6 +945,8 @@ class Manager
      */
     protected function resolveRefreshCookieOptions(string $guard, int $expires): array
     {
+        $secureDefault = strtolower((string) Env::get('APP_ENV', 'production')) === 'production';
+
         return [
             'expires' => $expires,
             'path' => (string) $this->resolveGuardConfig(
@@ -955,7 +962,7 @@ class Manager
             'secure' => (bool) $this->resolveGuardConfig(
                 $guard,
                 'refresh_cookie_secure',
-                $this->resolveGuardConfig($guard, 'cookie_secure', false)
+                $this->resolveGuardConfig($guard, 'cookie_secure', $secureDefault)
             ),
             'httponly' => (bool) $this->resolveGuardConfig(
                 $guard,

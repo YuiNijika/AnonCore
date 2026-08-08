@@ -56,9 +56,10 @@ class App extends Container
         
         Hook::trigger('app_init', $app);
 
+        $app->flushScope();
         $request = Request::capture();
-        $app->instance(Request::class, $request);
-        $app->instance('request', $request);
+        $app->scopedInstance(Request::class, $request);
+        $app->scopedInstance('request', $request);
         
         Hook::trigger('request_begin', $request);
 
@@ -161,9 +162,11 @@ class App extends Container
         $this->bind('session', \Anon\Core\Session\Manager::class);
         $this->bind('validator', \Anon\Core\Validation\Factory::class);
         $this->bind('event', \Anon\Core\Event\Dispatcher::class);
-        $this->bind('auth', \Anon\Core\Auth\Manager::class);
+        $this->scoped(\Anon\Core\Auth\Manager::class);
+        $this->scoped('auth', \Anon\Core\Auth\Manager::class);
         $this->bind('storage', \Anon\Core\Storage\Manager::class);
-        $this->bind('http', \Anon\Core\Http\Client::class);
+        $this->transient(\Anon\Core\Http\Client::class);
+        $this->transient('http', \Anon\Core\Http\Client::class);
         $this->bind('queue', \Anon\Core\Queue\Manager::class);
 
         $actionRegistry = new \Anon\Core\Action\Registry();
@@ -242,14 +245,9 @@ class App extends Container
             define('APP_DEBUG', $debugMode);
         }
 
-        // 自动获取 APP_URL
-        $defaultUrl = '';
-        if (isset($_SERVER['HTTP_HOST'])) {
-            $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' || isset($_SERVER['SERVER_PORT']) && $_SERVER['SERVER_PORT'] == 443) ? "https://" : "http://";
-            $defaultUrl = $protocol . $_SERVER['HTTP_HOST'];
-        }
+        // APP_URL 只能来自可信配置。请求 Host 属于用户输入，不在启动阶段固化为全局常量。
         if (!defined('APP_URL')) {
-            define('APP_URL', Config::get('app.url', Env::get('APP_URL', $defaultUrl)));
+            define('APP_URL', Config::get('app.url', Env::get('APP_URL', '')));
         }
     }
 

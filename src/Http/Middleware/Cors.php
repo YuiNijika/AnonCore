@@ -25,7 +25,7 @@ class Cors
     /**
      * 是否允许携带凭证 (Cookies, Authorization headers等)
      */
-    protected bool $allowCredentials = true;
+    protected bool $allowCredentials = false;
 
     /**
      * 预检请求缓存时间
@@ -82,17 +82,22 @@ class Cors
      */
     private function applyCorsHeaders(Response $response, string $origin): void
     {
-        // credentials 模式下不能用 *，须用具体 origin
-        $allowedOrigin = $this->allowCredentials ? $origin : (in_array('*', $this->allowedOrigins) ? '*' : $origin);
-
-        $response->header('Access-Control-Allow-Origin', $allowedOrigin);
-        $response->header('Access-Control-Allow-Methods', implode(', ', $this->allowedMethods));
-        $response->header('Access-Control-Allow-Headers', implode(', ', $this->allowedHeaders));
-
-        if ($this->allowCredentials) {
-            $response->header('Access-Control-Allow-Credentials', 'true');
+        $allowsWildcard = in_array('*', $this->allowedOrigins, true);
+        if ($this->allowCredentials && $allowsWildcard) {
+            throw new \InvalidArgumentException('CORS credentials require an explicit origin allowlist.');
         }
 
-        $response->header('Access-Control-Max-Age', (string) $this->maxAge);
+        $allowedOrigin = $allowsWildcard ? '*' : $origin;
+
+        $response->withHeader('Vary', 'Origin');
+        $response->withHeader('Access-Control-Allow-Origin', $allowedOrigin);
+        $response->withHeader('Access-Control-Allow-Methods', implode(', ', $this->allowedMethods));
+        $response->withHeader('Access-Control-Allow-Headers', implode(', ', $this->allowedHeaders));
+
+        if ($this->allowCredentials) {
+            $response->withHeader('Access-Control-Allow-Credentials', 'true');
+        }
+
+        $response->withHeader('Access-Control-Max-Age', (string) $this->maxAge);
     }
 }

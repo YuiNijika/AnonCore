@@ -26,10 +26,30 @@ final class Frame
         $b0 = ord($buffer[0]);
         $b1 = ord($buffer[1]);
         $fin = ($b0 & 0x80) !== 0;
+        $rsv = $b0 & 0x70;
         $opcode = $b0 & 0x0F;
         $masked = ($b1 & 0x80) !== 0;
         $payloadLen = $b1 & 0x7F;
         $offset = 2;
+
+        if ($rsv !== 0) {
+            throw new \Anon\Core\Exception\WebSocket('RSV bits require a negotiated extension.');
+        }
+
+        if (!in_array($opcode, [
+            self::OPCODE_CONTINUATION,
+            self::OPCODE_TEXT,
+            self::OPCODE_BINARY,
+            self::OPCODE_CLOSE,
+            self::OPCODE_PING,
+            self::OPCODE_PONG,
+        ], true)) {
+            throw new \Anon\Core\Exception\WebSocket('Unsupported WebSocket opcode.');
+        }
+
+        if (!$masked) {
+            throw new \Anon\Core\Exception\WebSocket('Client WebSocket frames must be masked.');
+        }
 
         if ($payloadLen === 126) {
             if ($len < 4) {
@@ -53,7 +73,13 @@ final class Frame
             $offset = 10;
         }
 
-        $maskLen = $masked ? 4 : 0;
+        $maskLen = 4;
+        if ($opcode >= self::OPCODE_CLOSE) {
+            if (!$fin || $payloadLen > 125) {
+                throw new \Anon\Core\Exception\WebSocket('Invalid WebSocket control frame.');
+            }
+        }
+
         $frameLen = $offset + $maskLen + $payloadLen;
         if ($len < $frameLen) {
             return null;

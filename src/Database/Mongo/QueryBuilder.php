@@ -407,7 +407,14 @@ class QueryBuilder extends BaseQueryBuilder
 
     public function paginate(int $perPage = 15, ?int $current = null): array
     {
+        $perPage = max(1, min(1000, $perPage));
         if ($current === null) {
+            if (isset($_GET['page'])) {
+                @trigger_error(
+                    'Implicit pagination from $_GET is deprecated; pass the current page explicitly.',
+                    E_USER_DEPRECATED
+                );
+            }
             $current = isset($_GET['page']) ? (int) $_GET['page'] : 1;
         }
         if ($current < 1) {

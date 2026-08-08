@@ -145,6 +145,7 @@ class QueryBuilder
         }
 
         $column = $this->wrap($column);
+        $boolean = $this->normalizeBoolean($boolean);
         $this->wheres[] = [
             'type' => 'basic',
             'sql' => "{$column} {$operator} ?",
@@ -402,6 +403,7 @@ class QueryBuilder
     public function whereNull(string $column, string $boolean = 'AND'): self
     {
         $column = $this->wrap($column);
+        $boolean = $this->normalizeBoolean($boolean);
         $this->wheres[] = [
             'type' => 'null',
             'sql' => "{$column} IS NULL",
@@ -416,6 +418,7 @@ class QueryBuilder
     public function whereNotNull(string $column, string $boolean = 'AND'): self
     {
         $column = $this->wrap($column);
+        $boolean = $this->normalizeBoolean($boolean);
         $this->wheres[] = [
             'type' => 'not_null',
             'sql' => "{$column} IS NOT NULL",
@@ -752,7 +755,14 @@ class QueryBuilder
      */
     public function paginate(int $perPage = 15, ?int $current = null): array
     {
+        $perPage = max(1, min(1000, $perPage));
         if ($current === null) {
+            if (isset($_GET['page'])) {
+                @trigger_error(
+                    'Implicit pagination from $_GET is deprecated; pass the current page explicitly.',
+                    E_USER_DEPRECATED
+                );
+            }
             $current = isset($_GET['page']) ? (int) $_GET['page'] : 1;
         }
         if ($current < 1) {
@@ -1154,7 +1164,8 @@ class QueryBuilder
         
         $sql = '';
         foreach ($this->wheres as $index => $where) {
-            $boolean = $index > 0 ? " {$where['boolean']} " : 'WHERE ';
+            $connector = $this->normalizeBoolean((string) ($where['boolean'] ?? 'AND'));
+            $boolean = $index > 0 ? " {$connector} " : 'WHERE ';
             $sql .= $boolean . $where['sql'];
         }
         
@@ -1169,15 +1180,27 @@ class QueryBuilder
 
         $sql = '';
         foreach ($this->havings as $index => $having) {
-            $boolean = $index > 0 ? " {$having['boolean']} " : 'HAVING ';
+            $connector = $this->normalizeBoolean((string) ($having['boolean'] ?? 'AND'));
+            $boolean = $index > 0 ? " {$connector} " : 'HAVING ';
             $sql .= $boolean . $having['sql'];
         }
 
         return $sql;
     }
 
+    protected function normalizeBoolean(string $boolean): string
+    {
+        $boolean = strtoupper(trim($boolean));
+        if (!in_array($boolean, ['AND', 'OR'], true)) {
+            throw new \InvalidArgumentException("Illegal boolean connector [{$boolean}].");
+        }
+
+        return $boolean;
+    }
+
     protected function addWhereSql(string $sql, array $bindings, string $boolean, string $type = 'raw'): self
     {
+        $boolean = $this->normalizeBoolean($boolean);
         $this->wheres[] = [
             'type' => $type,
             'sql' => $sql,
@@ -1190,6 +1213,7 @@ class QueryBuilder
 
     protected function addHavingSql(string $sql, array $bindings, string $boolean, string $type = 'raw'): self
     {
+        $boolean = $this->normalizeBoolean($boolean);
         $this->havings[] = [
             'type' => $type,
             'sql' => $sql,

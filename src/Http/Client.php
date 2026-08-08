@@ -152,6 +152,11 @@ class Client
         }
 
         $sslVerify = $this->sslVerify ?? (bool) \Anon\Core\Facade\Config::get('http.ssl_verify', true);
+        $maxResponseBytes = max(1, (int) \Anon\Core\Facade\Config::get(
+            'http.max_response_body_bytes',
+            10 * 1024 * 1024
+        ));
+        $downloadLimitExceeded = false;
 
         $ch = curl_init();
         $method = strtoupper($method);
@@ -169,6 +174,19 @@ class Client
         if (defined('CURLOPT_NOSIGNAL')) {
             curl_setopt($ch, CURLOPT_NOSIGNAL, true);
         }
+        curl_setopt($ch, CURLOPT_NOPROGRESS, false);
+        curl_setopt(
+            $ch,
+            CURLOPT_XFERINFOFUNCTION,
+            static function ($handle, float $downloadTotal, float $downloaded) use ($maxResponseBytes, &$downloadLimitExceeded): int {
+                if ($downloadTotal > $maxResponseBytes || $downloaded > $maxResponseBytes) {
+                    $downloadLimitExceeded = true;
+                    return 1;
+                }
+
+                return 0;
+            }
+        );
 
         if ($method === 'HEAD') {
             curl_setopt($ch, CURLOPT_NOBODY, true);
@@ -224,6 +242,10 @@ class Client
         $headerSize = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
         
         curl_close($ch);
+
+        if ($downloadLimitExceeded) {
+            throw new HttpClientError("HTTP response exceeded the configured {$maxResponseBytes} byte limit.");
+        }
 
         if ($response === false) {
             throw new HttpClientError("HTTP Client Error: {$error}");

@@ -21,9 +21,19 @@ class Container
     protected array $bindings = [];
 
     /**
-     * @var array 已经实例化的对象池
+     * @var array 已经实例化的单例对象池
      */
     protected array $instances = [];
+
+    /**
+     * @var array 当前请求/任务作用域内的对象池
+     */
+    protected array $scopedInstances = [];
+
+    /**
+     * @var array<string, 'singleton'|'scoped'|'transient'>
+     */
+    protected array $lifetimes = [];
 
     /**
      * @var array 正在构建的类栈
@@ -81,6 +91,21 @@ class Container
     public function bind(string $abstract, mixed $concrete = null): self
     {
         $this->bindings[$abstract] = $concrete ?: $abstract;
+        $this->lifetimes[$abstract] = 'singleton';
+        return $this;
+    }
+
+    public function scoped(string $abstract, mixed $concrete = null): self
+    {
+        $this->bindings[$abstract] = $concrete ?: $abstract;
+        $this->lifetimes[$abstract] = 'scoped';
+        return $this;
+    }
+
+    public function transient(string $abstract, mixed $concrete = null): self
+    {
+        $this->bindings[$abstract] = $concrete ?: $abstract;
+        $this->lifetimes[$abstract] = 'transient';
         return $this;
     }
 
@@ -93,7 +118,20 @@ class Container
     public function instance(string $abstract, mixed $instance): self
     {
         $this->instances[$abstract] = $instance;
+        $this->lifetimes[$abstract] = 'singleton';
         return $this;
+    }
+
+    public function scopedInstance(string $abstract, mixed $instance): self
+    {
+        $this->scopedInstances[$abstract] = $instance;
+        $this->lifetimes[$abstract] = 'scoped';
+        return $this;
+    }
+
+    public function flushScope(): void
+    {
+        $this->scopedInstances = [];
     }
 
     /**
@@ -106,9 +144,12 @@ class Container
      */
     public function make(string $abstract, array $vars = [], bool $newInstance = false): mixed
     {
-        // 如果已经实例化过，且不强制创建新实例，直接返回单例
         if (isset($this->instances[$abstract]) && !$newInstance) {
             return $this->instances[$abstract];
+        }
+
+        if (isset($this->scopedInstances[$abstract]) && !$newInstance) {
+            return $this->scopedInstances[$abstract];
         }
 
         // 检测循环依赖
@@ -132,9 +173,13 @@ class Container
             unset($this->buildStack[$abstract]);
         }
 
-        // 存入实例池
         if (!$newInstance) {
-            $this->instances[$abstract] = $object;
+            $lifetime = $this->lifetimes[$abstract] ?? 'singleton';
+            if ($lifetime === 'singleton') {
+                $this->instances[$abstract] = $object;
+            } elseif ($lifetime === 'scoped') {
+                $this->scopedInstances[$abstract] = $object;
+            }
         }
 
         return $object;

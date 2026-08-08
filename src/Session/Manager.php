@@ -40,11 +40,12 @@ class Manager implements Contract
 
         // 设置 Cookie 参数
         $lifetime = (int) Config::get('session.lifetime', Env::get('SESSION_LIFETIME', 86400));
+        $secureDefault = strtolower((string) Env::get('APP_ENV', 'production')) === 'production';
         session_set_cookie_params([
             'lifetime' => $lifetime,
             'path'     => (string) Config::get('session.path', '/'),
             'domain'   => (string) Config::get('session.domain', Env::get('SESSION_DOMAIN', '')),
-            'secure'   => (bool) Config::get('session.secure', Env::get('SESSION_SECURE', false)),
+            'secure'   => (bool) Config::get('session.secure', Env::get('SESSION_SECURE', $secureDefault)),
             'httponly' => (bool) Config::get('session.httponly', Env::get('SESSION_HTTPONLY', true)),
             'samesite' => (string) Config::get('session.samesite', Env::get('SESSION_SAMESITE', 'Lax')),
         ]);

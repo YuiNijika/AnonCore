@@ -26,6 +26,9 @@ final class Server
     /** @var array<int, Connection> */
     private array $connections = [];
 
+    /** @var array<int, array{socket: resource, buffer: string, deadline: float}> */
+    private array $pendingHandshakes = [];
+
     /** @var callable(string): void|null */
     private $logger = null;
 
@@ -215,6 +218,9 @@ final class Server
 
         while ($this->running) {
             $read = [$socket];
+            foreach ($this->pendingHandshakes as $pending) {
+                $read[] = $pending['socket'];
+            }
             foreach ($this->connections as $conn) {
                 if ($conn->isOpen()) {
                     $read[] = $conn->socket();
@@ -236,6 +242,11 @@ final class Server
                     }
 
                     $id = (int) $sock;
+                    if (isset($this->pendingHandshakes[$id])) {
+                        $this->readHandshake($id);
+                        continue;
+                    }
+
                     $conn = $this->connections[$id] ?? null;
                     if ($conn === null) {
                         @fclose($sock);
@@ -246,8 +257,14 @@ final class Server
                 }
             }
 
+            $this->expirePendingHandshakes();
             $this->tickHeartbeat();
         }
+
+        foreach ($this->pendingHandshakes as $pending) {
+            @fclose($pending['socket']);
+        }
+        $this->pendingHandshakes = [];
 
         foreach ($this->connections as $conn) {
             $conn->close(1001, 'server shutdown');
@@ -323,7 +340,7 @@ final class Server
             return;
         }
 
-        if (count($this->connections) >= $this->maxConnections) {
+        if (count($this->connections) + count($this->pendingHandshakes) >= $this->maxConnections) {
             $this->writeHttp($client, 503, 'Service Unavailable', 'Too many connections');
             @fclose($client);
             $this->log('reject: max connections');
@@ -331,17 +348,60 @@ final class Server
             return;
         }
 
-        stream_set_blocking($client, true);
-        $raw = $this->readHttpHeaders($client);
-        if ($raw === null) {
+        stream_set_blocking($client, false);
+        $this->pendingHandshakes[(int) $client] = [
+            'socket' => $client,
+            'buffer' => '',
+            'deadline' => microtime(true) + 5.0,
+        ];
+    }
+
+    private function readHandshake(int $socketId): void
+    {
+        $pending = $this->pendingHandshakes[$socketId] ?? null;
+        if ($pending === null) {
+            return;
+        }
+
+        $chunk = @fread($pending['socket'], 4096);
+        if ($chunk === false || ($chunk === '' && feof($pending['socket']))) {
+            $this->dropPendingHandshake($socketId);
+            return;
+        }
+
+        if ($chunk === '') {
+            return;
+        }
+
+        $pending['buffer'] .= $chunk;
+        $this->pendingHandshakes[$socketId] = $pending;
+
+        if (strlen($pending['buffer']) > 16384) {
+            $this->writeHttp($pending['socket'], 431, 'Request Header Fields Too Large', 'Handshake headers too large');
+            $this->dropPendingHandshake($socketId);
+            return;
+        }
+
+        if (!str_contains($pending['buffer'], "\r\n\r\n")) {
+            return;
+        }
+
+        unset($this->pendingHandshakes[$socketId]);
+        $this->completeHandshake($pending['socket'], $pending['buffer']);
+    }
+
+    private function completeHandshake($client, string $raw): void
+    {
+        $parsed = $this->parseHttpRequest($raw);
+        if ($parsed === null || !$this->isWebSocketUpgrade($parsed['headers'])) {
+            $this->writeHttp($client, 400, 'Bad Request', 'Expected WebSocket upgrade');
             @fclose($client);
 
             return;
         }
 
-        $parsed = $this->parseHttpRequest($raw);
-        if ($parsed === null || !$this->isWebSocketUpgrade($parsed['headers'])) {
-            $this->writeHttp($client, 400, 'Bad Request', 'Expected WebSocket upgrade');
+        if (($parsed['headers']['sec-websocket-version'] ?? '') !== '13') {
+            $this->writeHttp($client, 426, 'Upgrade Required', 'WebSocket version 13 is required');
             @fclose($client);
 
             return;
@@ -364,8 +424,9 @@ final class Server
         }
 
         $key = $parsed['headers']['sec-websocket-key'] ?? '';
-        if ($key === '') {
-            $this->writeHttp($client, 400, 'Bad Request', 'Missing Sec-WebSocket-Key');
+        $decodedKey = base64_decode($key, true);
+        if ($decodedKey === false || strlen($decodedKey) !== 16) {
+            $this->writeHttp($client, 400, 'Bad Request', 'Invalid Sec-WebSocket-Key');
             @fclose($client);
 
             return;
@@ -384,7 +445,6 @@ final class Server
         $response .= "\r\n";
 
         @fwrite($client, $response);
-        stream_set_blocking($client, false);
 
         $remote = (string) (@stream_socket_get_name($client, true) ?: '');
         $id = bin2hex(random_bytes(8));
@@ -403,6 +463,27 @@ final class Server
         $this->connections[(int) $client] = $conn;
         $this->log("open #{$id} {$path}" . ($parsed['query'] !== '' ? "?{$parsed['query']}" : ''));
         $this->dispatchOpen($handler, $conn);
+    }
+
+    private function expirePendingHandshakes(): void
+    {
+        $now = microtime(true);
+        foreach ($this->pendingHandshakes as $socketId => $pending) {
+            if ($pending['deadline'] <= $now) {
+                $this->dropPendingHandshake($socketId);
+            }
+        }
+    }
+
+    private function dropPendingHandshake(int $socketId): void
+    {
+        $pending = $this->pendingHandshakes[$socketId] ?? null;
+        if ($pending === null) {
+            return;
+        }
+
+        @fclose($pending['socket']);
+        unset($this->pendingHandshakes[$socketId]);
     }
 
     private function readFrom(Connection $conn): void
@@ -427,7 +508,16 @@ final class Server
         $buffer = &$conn->bufferRef();
 
         while (true) {
-            $frame = Frame::decode($buffer);
+            try {
+                $frame = Frame::decode($buffer);
+            } catch (WebSocketException $error) {
+                $this->log("protocol error #{$conn->id()}: {$error->getMessage()}");
+                $conn->close(1002, 'protocol error');
+                $this->drop($conn, false);
+
+                return;
+            }
+
             if ($frame === null) {
                 break;
             }
@@ -460,6 +550,20 @@ final class Server
                 continue;
             }
 
+            if ($opcode === Frame::OPCODE_CONTINUATION && $conn->fragmentOpcode() === null) {
+                $conn->close(1002, 'unexpected continuation');
+                $this->drop($conn, false);
+
+                return;
+            }
+
+            if ($opcode !== Frame::OPCODE_CONTINUATION && $conn->fragmentOpcode() !== null) {
+                $conn->close(1002, 'fragment sequence error');
+                $this->drop($conn, false);
+
+                return;
+            }
+
             if ($conn->fragmentBufferSize() + strlen($payload) > $this->maxMessageBytes) {
                 $this->log("message too big #{$conn->id()}");
                 $conn->clearFragments();
@@ -476,6 +580,13 @@ final class Server
 
             if (strlen($message['payload']) > $this->maxMessageBytes) {
                 $conn->close(1009, 'message too big');
+                $this->drop($conn, false);
+
+                return;
+            }
+
+            if ($message['opcode'] === Frame::OPCODE_TEXT && !mb_check_encoding($message['payload'], 'UTF-8')) {
+                $conn->close(1007, 'invalid utf-8');
                 $this->drop($conn, false);
 
                 return;
@@ -576,28 +687,6 @@ final class Server
         } catch (\Throwable $e) {
             $this->log('onClose error: ' . $e->getMessage());
         }
-    }
-
-    private function readHttpHeaders($socket): ?string
-    {
-        $data = '';
-        $deadline = microtime(true) + 5.0;
-        while (microtime(true) < $deadline) {
-            $chunk = @fread($socket, 1024);
-            if ($chunk === false || $chunk === '') {
-                usleep(10000);
-                continue;
-            }
-            $data .= $chunk;
-            if (str_contains($data, "\r\n\r\n")) {
-                return $data;
-            }
-            if (strlen($data) > 16384) {
-                return null;
-            }
-        }
-
-        return null;
     }
 
     /**

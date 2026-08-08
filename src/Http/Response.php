@@ -198,6 +198,16 @@ class Response
     }
 
     /**
+     * 获取当前响应头。
+     *
+     * @return array<string, string>
+     */
+    public function getHeaders(): array
+    {
+        return $this->headers;
+    }
+
+    /**
      * 追加自定义 HTTP 头
      */
     public function setHeader(string $name, string $value): self
@@ -245,6 +255,10 @@ class Response
      */
     public function setCookie(string $name, string $value, array $options = []): self
     {
+        if ($name === '' || preg_match('/[\x00-\x20\x7F()<>@,;:\\"\/\[\]?={}]/', $name) === 1) {
+            throw new \InvalidArgumentException('Invalid cookie name.');
+        }
+
         $this->cookies[] = [
             'name' => $name,
             'value' => $value,
@@ -344,13 +358,24 @@ class Response
      */
     protected function normalizeCookieOptions(array $options): array
     {
+        $sameSite = ucfirst(strtolower(trim((string) ($options['samesite'] ?? 'Lax'))));
+        $secure = (bool) ($options['secure'] ?? false);
+
+        if (!in_array($sameSite, ['Lax', 'Strict', 'None'], true)) {
+            throw new \InvalidArgumentException('Cookie SameSite must be Lax, Strict, or None.');
+        }
+
+        if ($sameSite === 'None' && !$secure) {
+            throw new \InvalidArgumentException('Cookies using SameSite=None must also enable Secure.');
+        }
+
         return [
             'expires' => isset($options['expires']) ? (int) $options['expires'] : 0,
             'path' => (string) ($options['path'] ?? '/'),
             'domain' => (string) ($options['domain'] ?? ''),
-            'secure' => (bool) ($options['secure'] ?? false),
+            'secure' => $secure,
             'httponly' => (bool) ($options['httponly'] ?? true),
-            'samesite' => (string) ($options['samesite'] ?? 'Lax'),
+            'samesite' => $sameSite,
         ];
     }
 }

@@ -251,6 +251,11 @@ final class Connection
         ];
     }
 
+    public function fragmentOpcode(): ?int
+    {
+        return $this->fragmentOpcode;
+    }
+
     public function fragmentBufferSize(): int
     {
         return strlen($this->fragmentPayload);

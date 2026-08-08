@@ -144,7 +144,16 @@ class Request
      */
     public function host(): string
     {
-        return $this->header('Host', $this->server['HTTP_HOST'] ?? $this->server['SERVER_NAME'] ?? 'localhost');
+        $host = trim((string) $this->header(
+            'Host',
+            $this->server['HTTP_HOST'] ?? $this->server['SERVER_NAME'] ?? 'localhost'
+        ));
+
+        if (!$this->isValidHost($host) || !$this->isTrustedHost($host)) {
+            throw new \Anon\Core\Exception\Http(400, 'Invalid Host header.', [], null, 'INVALID_HOST');
+        }
+
+        return $host;
     }
 
     /**
@@ -159,8 +168,15 @@ class Request
         }
 
         $isSecure = (!empty($this->server['HTTPS']) && $this->server['HTTPS'] !== 'off')
-            || (isset($this->server['SERVER_PORT']) && $this->server['SERVER_PORT'] == 443)
-            || ($this->header('X-Forwarded-Proto') === 'https');
+            || (isset($this->server['SERVER_PORT']) && $this->server['SERVER_PORT'] == 443);
+
+        $remoteAddr = (string) ($this->server['REMOTE_ADDR'] ?? '');
+        if ($this->isTrustedProxy($remoteAddr, $this->trustedProxies())) {
+            $forwardedProto = strtolower(trim(explode(',', (string) $this->header('X-Forwarded-Proto', ''))[0]));
+            if (in_array($forwardedProto, ['http', 'https'], true)) {
+                $isSecure = $forwardedProto === 'https';
+            }
+        }
 
         $protocol = $isSecure ? 'https://' : 'http://';
         
@@ -222,6 +238,48 @@ class Request
         }
 
         return '127.0.0.1';
+    }
+
+    protected function isValidHost(string $host): bool
+    {
+        if ($host === '' || preg_match('/[\x00-\x20\x7F]/', $host) === 1 || str_contains($host, '/') || str_contains($host, '\\')) {
+            return false;
+        }
+
+        return preg_match('/^(?:[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?|\[[0-9A-Fa-f:.]+\])(?::[0-9]{1,5})?$/', $host) === 1;
+    }
+
+    protected function isTrustedHost(string $host): bool
+    {
+        $configured = \Anon\Core\Facade\Config::get('app.trusted_hosts', []);
+        if (is_string($configured)) {
+            $configured = array_map('trim', explode(',', $configured));
+        }
+
+        if (!is_array($configured) || $configured === []) {
+            return true;
+        }
+
+        $hostname = strtolower($host);
+        if (str_starts_with($hostname, '[')) {
+            $closing = strpos($hostname, ']');
+            $hostname = $closing === false ? $hostname : substr($hostname, 0, $closing + 1);
+        } else {
+            $hostname = explode(':', $hostname, 2)[0];
+        }
+
+        foreach ($configured as $pattern) {
+            $pattern = strtolower(trim((string) $pattern));
+            if ($pattern === '*' || $pattern === $hostname) {
+                return true;
+            }
+
+            if (str_starts_with($pattern, '*.') && str_ends_with($hostname, substr($pattern, 1))) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -598,9 +656,26 @@ class Request
      */
     protected function parseBody(): mixed
     {
-        $rawBody = file_get_contents('php://input');
-        if (empty($rawBody)) {
+        $maxBytes = max(1, (int) \Anon\Core\Facade\Config::get('http.max_request_body_bytes', 2 * 1024 * 1024));
+        $contentLength = (int) ($this->server['CONTENT_LENGTH'] ?? 0);
+        if ($contentLength > $maxBytes) {
+            throw new \Anon\Core\Exception\Http(413, 'Request body too large.', [], null, 'REQUEST_BODY_TOO_LARGE');
+        }
+
+        $stream = fopen('php://input', 'rb');
+        if ($stream === false) {
             return null;
+        }
+
+        $rawBody = stream_get_contents($stream, $maxBytes + 1);
+        fclose($stream);
+
+        if ($rawBody === false || $rawBody === '') {
+            return null;
+        }
+
+        if (strlen($rawBody) > $maxBytes) {
+            throw new \Anon\Core\Exception\Http(413, 'Request body too large.', [], null, 'REQUEST_BODY_TOO_LARGE');
         }
 
         $contentType = (string) $this->header('Content-Type', '');

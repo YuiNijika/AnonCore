@@ -1045,6 +1045,13 @@ class Router
 
     protected function applyRouteCorsHeaders(RouteItem $routeItem, Request $request, Response $response): void
     {
+        $allowedOrigins = is_array($routeItem->cors['allow_origins'] ?? null)
+            ? $routeItem->cors['allow_origins']
+            : ['*'];
+        if ($this->routeAllowsCredentials($routeItem) && in_array('*', $allowedOrigins, true)) {
+            throw new \Anon\Core\Exception\Routing('CORS credentials require an explicit origin allowlist.');
+        }
+
         $allowOrigin = $this->resolveCorsAllowOrigin($routeItem, $request);
         if ($allowOrigin === null) {
             return;
@@ -1198,11 +1205,7 @@ class Router
 
     protected function routeAllowsCredentials(RouteItem $routeItem): bool
     {
-        if (array_key_exists('allow_credentials', $routeItem->cors)) {
-            return (bool) $routeItem->cors['allow_credentials'];
-        }
-
-        return true;
+        return (bool) ($routeItem->cors['allow_credentials'] ?? false);
     }
 
     protected function resolveCorsMaxAge(RouteItem $routeItem): int
@@ -1268,7 +1271,7 @@ class Router
     protected function resolveMiddlewareDefinition(mixed $definition): ?array
     {
         if (!is_string($definition) || trim($definition) === '') {
-            return null;
+            throw new \Anon\Core\Exception\Routing('Middleware definition must be a non-empty string.');
         }
 
         $middlewareClass = trim($definition);
@@ -1282,7 +1285,11 @@ class Router
         $middlewareClass = $this->middlewareAliases[$middlewareClass] ?? $middlewareClass;
 
         if (!class_exists($middlewareClass)) {
-            return null;
+            throw new \Anon\Core\Exception\Routing("Middleware class {$middlewareClass} not found.");
+        }
+
+        if (!method_exists($middlewareClass, 'handle')) {
+            throw new \Anon\Core\Exception\Routing("Middleware class {$middlewareClass} must define handle().");
         }
 
         return [$middlewareClass, $middlewareArgs];
