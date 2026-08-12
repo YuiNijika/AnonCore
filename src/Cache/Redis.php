@@ -101,14 +101,23 @@ class Redis implements Contract
     {
         $realKey = $this->getRealKey($key);
 
-        // 若键是序列化整数，先解码再以原生数字重写，保证 INCR 可用
+        // 若键是序列化整数，先解码再以原生数字重写，保证 INCR 可用；
+        // 重写前保留原 TTL，否则计数器会永不过期，限流达到上限后永久生效
         if ($this->redis->exists($realKey) > 0) {
             $raw = $this->redis->get($realKey);
             $decoded = $this->decodeStoredValue($raw);
             if (is_int($decoded) || (is_string($decoded) && ctype_digit($decoded))) {
+                $ttl = $this->redis->ttl($realKey);
                 $this->redis->set($realKey, (string) (int) $decoded);
+                if ($ttl > 0) {
+                    $this->redis->expire($realKey, $ttl);
+                }
             } elseif (is_float($decoded) || (is_numeric($decoded) && !is_string($decoded))) {
+                $ttl = $this->redis->ttl($realKey);
                 $this->redis->set($realKey, (string) (int) $decoded);
+                if ($ttl > 0) {
+                    $this->redis->expire($realKey, $ttl);
+                }
             }
         }
 
